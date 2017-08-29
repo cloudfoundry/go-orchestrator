@@ -84,6 +84,28 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
+		o.Group("with task that has 2 instances", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.o.UpdateTasks(nil)
+				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(3))
+				return t
+			})
+
+			o.Spec("it assigns the task to 2 different workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, count("multi-task", append(append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-1"]...),
+					t.spy.added["worker-2"]...,
+				))).To(Equal(3))
+
+				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(1))
+				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(1))
+				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(1))
+			})
+		})
+
 		o.Group("with one task assigned", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-1"}
@@ -246,7 +268,16 @@ func TestOrchestrator(t *testing.T) {
 				t.spy.actual["worker-1"] = []string{"task-1"}
 				t.spy.actual["worker-2"] = []string{"task-2"}
 
-				t.o.UpdateTasks([]string{"task-0", "task-2"})
+				t.o.UpdateTasks([]orchestrate.Task{
+					{
+						Name:      "task-0",
+						Instances: 1,
+					},
+					{
+						Name:      "task-2",
+						Instances: 1,
+					},
+				})
 				return t
 			})
 
@@ -375,4 +406,14 @@ func (s *spyCommunicator) Remove(ctx context.Context, worker string, task string
 	s.removed[worker] = append(s.removed[worker], task)
 	s.removedCtx[worker] = append(s.removedCtx[worker], ctx)
 	return nil
+}
+
+func count(x string, y []string) int {
+	var total int
+	for _, s := range y {
+		if s == x {
+			total++
+		}
+	}
+	return total
 }

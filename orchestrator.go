@@ -31,7 +31,7 @@ type Orchestrator struct {
 
 	mu            sync.Mutex
 	workers       []string
-	expectedTasks []string
+	expectedTasks []Task
 }
 
 // New creates a new Orchestrator.
@@ -118,20 +118,24 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 		}
 	}
 
-	for _, task := range toAdd {
-		for {
-			var tryAgain bool
-			counts, tryAgain = o.assignTask(ctx,
-				task,
-				counts,
-				actual,
-			)
+	for task, missing := range toAdd {
+		history := make(map[string]bool)
+		for i := 0; i < missing; i++ {
+			for {
+				var tryAgain bool
+				counts, tryAgain = o.assignTask(ctx,
+					task,
+					counts,
+					actual,
+					history,
+				)
 
-			if tryAgain {
-				// Worker pool was adjusted and task was not assigned.
-				continue
+				if tryAgain {
+					// Worker pool was adjusted and task was not assigned.
+					continue
+				}
+				break
 			}
-			break
 		}
 	}
 }
@@ -140,10 +144,10 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 // many tasks, it will be added to the remove map, and added to the returned
 // add slice.
 func (o *Orchestrator) rebalance(
-	toAdd []string,
+	toAdd map[string]int,
 	toRemove,
 	actual map[string][]string,
-) ([]string, map[string][]string) {
+) (map[string]int, map[string][]string) {
 
 	counts := o.counts(actual, toRemove)
 	var total int
@@ -161,7 +165,7 @@ func (o *Orchestrator) rebalance(
 			task := actual[c.name][0]
 			o.log.Printf("Worker %s has too many tasks (%d). Moving %s.", c.name, c.count, task)
 			toRemove[c.name] = append(toRemove[c.name], task)
-			toAdd = append(toAdd, task)
+			toAdd[task]++
 		}
 	}
 
@@ -176,10 +180,10 @@ func (o *Orchestrator) assignTask(
 	task string,
 	counts []countInfo,
 	actual map[string][]string,
+	history map[string]bool,
 ) (c []countInfo, doOver bool) {
 
 	for i, info := range counts {
-
 		// Ensure that each worker gets an even amount of work assigned.
 		// Therefore if a worker gets its fair share, remove it from the worker
 		// pool for this term. This also accounts for there being a non-divisbile
@@ -193,6 +197,12 @@ func (o *Orchestrator) assignTask(
 			// not assigned.
 			return counts, true
 		}
+
+		// Ensure we haven't assigned this task to the worker already.
+		if history[info.name] {
+			continue
+		}
+		history[info.name] = true
 
 		// Update the count for the worker.
 		counts[i] = countInfo{
@@ -273,21 +283,23 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 
 // delta finds what should be added and removed to make actual match the
 // expected.
-func (o *Orchestrator) delta(actual map[string][]string) (toAdd []string, toRemove map[string][]string) {
+func (o *Orchestrator) delta(actual map[string][]string) (toAdd map[string]int, toRemove map[string][]string) {
 	toRemove = make(map[string][]string)
-	expectedTasks := make([]string, len(o.expectedTasks))
+	toAdd = make(map[string]int)
+	expectedTasks := make([]Task, len(o.expectedTasks))
 	copy(expectedTasks, o.expectedTasks)
 
 	for _, task := range o.expectedTasks {
-		if o.hasExpected(task, actual) {
+		needs := o.hasEnough(task, actual)
+		if needs == 0 {
 			continue
 		}
-		toAdd = append(toAdd, task)
+		toAdd[task.Name] = needs
 	}
 
 	for worker, tasks := range actual {
 		for _, task := range tasks {
-			if idx := o.contains(task, expectedTasks); idx >= 0 {
+			if idx := o.containsTask(task, expectedTasks); idx >= 0 {
 				expectedTasks = append(expectedTasks[0:idx], expectedTasks[idx+1:]...)
 				continue
 			}
@@ -298,16 +310,17 @@ func (o *Orchestrator) delta(actual map[string][]string) (toAdd []string, toRemo
 	return toAdd, toRemove
 }
 
-// hasExpected looks at each task in the given actual list and ensures
+// hasEnough looks at each task in the given actual list and ensures
 // a worker node is servicing the task.
-func (o *Orchestrator) hasExpected(task string, actual map[string][]string) bool {
+func (o *Orchestrator) hasEnough(t Task, actual map[string][]string) (needs int) {
+	var count int
 	for _, a := range actual {
-		if o.contains(task, a) >= 0 {
-			return true
+		if o.contains(t.Name, a) >= 0 {
+			count++
 		}
 	}
 
-	return false
+	return t.Instances - count
 }
 
 // contains returns the index of the given string (x) in the slice y. If the
@@ -315,6 +328,18 @@ func (o *Orchestrator) hasExpected(task string, actual map[string][]string) bool
 func (o *Orchestrator) contains(x string, y []string) int {
 	for i, t := range y {
 		if t == x {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// containsTask returns the index of the given task name in the tasks. If the
+// task is not found, it returns -1.
+func (o *Orchestrator) containsTask(task string, tasks []Task) int {
+	for i, t := range tasks {
+		if t.Name == task {
 			return i
 		}
 	}
@@ -357,14 +382,35 @@ func (o *Orchestrator) UpdateWorkers(workers []string) {
 	o.workers = workers
 }
 
+// Task stores the required information for a task.
+type Task struct {
+	Name      string
+	Instances int
+}
+
 // AddTask adds a new task to the expected workload. The update will not take
 // affect until the next term. It is safe to invoke AddTask, RemoveTask and
 // UpdateTasks on multiple go-routines.
-func (o *Orchestrator) AddTask(task string) {
+func (o *Orchestrator) AddTask(task string, opts ...TaskOption) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	o.expectedTasks = append(o.expectedTasks, task)
+	t := Task{Name: task, Instances: 1}
+	for _, opt := range opts {
+		opt(&t)
+	}
+
+	o.expectedTasks = append(o.expectedTasks, t)
+}
+
+// TaskOption is used to configure a task when it is being added.
+type TaskOption func(*Task)
+
+// WithTaskInstances configures the number of tasks. Defaults to 1.
+func WithTaskInstances(i int) TaskOption {
+	return func(t *Task) {
+		t.Instances = i
+	}
 }
 
 // RemoveTask removes a task from the expected workload. The update will not
@@ -374,7 +420,7 @@ func (o *Orchestrator) RemoveTask(task string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	idx := o.contains(task, o.expectedTasks)
+	idx := o.containsTask(task, o.expectedTasks)
 	if idx < 0 {
 		return
 	}
@@ -385,7 +431,7 @@ func (o *Orchestrator) RemoveTask(task string) {
 // UpdateTasks overwrites the expected task list. The update will not take
 // affect until the next term. It is safe to invoke AddTask, RemoveTask and
 // UpdateTasks on multiple go-routines.
-func (o *Orchestrator) UpdateTasks(tasks []string) {
+func (o *Orchestrator) UpdateTasks(tasks []Task) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
