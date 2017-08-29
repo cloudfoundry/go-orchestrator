@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	orchestrate "github.com/apoydence/go-orchestrate"
 	"github.com/apoydence/onpar"
@@ -35,8 +36,11 @@ func TestOrchestrator(t *testing.T) {
 		}
 
 		return TO{
-			T:   t,
-			o:   orchestrate.New(spy, orchestrate.WithLogger(logger)),
+			T: t,
+			o: orchestrate.New(spy,
+				orchestrate.WithLogger(logger),
+				orchestrate.WithCommunicatorTimeout(time.Millisecond),
+			),
 			spy: spy,
 		}
 	})
@@ -259,12 +263,40 @@ func TestOrchestrator(t *testing.T) {
 				))
 			})
 		})
+
+		o.Group("with a worker blocking trying to list", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.block["worker-1"] = true
+
+				return t
+			})
+
+			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(HaveLen(3))
+
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(Contain(
+					"task-0",
+					"task-1",
+					"task-2",
+				))
+			})
+		})
 	})
 }
 
 type spyCommunicator struct {
 	mu sync.Mutex
 
+	block    map[string]bool
 	listErrs map[string]error
 	actual   map[string][]string
 	added    map[string][]string
@@ -273,6 +305,7 @@ type spyCommunicator struct {
 
 func newSpyCommunicator() *spyCommunicator {
 	return &spyCommunicator{
+		block:    make(map[string]bool),
 		listErrs: make(map[string]error),
 		actual:   make(map[string][]string),
 		added:    make(map[string][]string),
@@ -281,6 +314,11 @@ func newSpyCommunicator() *spyCommunicator {
 }
 
 func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, error) {
+	if s.block[worker] {
+		var c chan int
+		<-c
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

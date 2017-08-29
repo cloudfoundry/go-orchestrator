@@ -16,6 +16,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 )
 
 // Orchestrator stores the expected workload and reaches out to the cluster
@@ -24,8 +25,9 @@ import (
 // The expected task list can be altered via AddTask, RemoveTask and
 // UpdateTasks. Each method is safe to be called on multiple go-routines.
 type Orchestrator struct {
-	log Logger
-	c   Communicator
+	log     Logger
+	c       Communicator
+	timeout time.Duration
 
 	mu            sync.Mutex
 	workers       []string
@@ -35,8 +37,9 @@ type Orchestrator struct {
 // New creates a new Orchestrator.
 func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 	o := &Orchestrator{
-		c:   c,
-		log: log.New(ioutil.Discard, "", 0),
+		c:       c,
+		log:     log.New(ioutil.Discard, "", 0),
+		timeout: 10 * time.Second,
 	}
 
 	for _, opt := range opts {
@@ -66,10 +69,18 @@ type Logger interface {
 	Printf(format string, v ...interface{})
 }
 
-// WithLogger sets the logger for the Orchestrator.
+// WithLogger sets the logger for the Orchestrator. Defaults to silent logger.
 func WithLogger(l Logger) OrchestratorOption {
 	return func(o *Orchestrator) {
 		o.log = l
+	}
+}
+
+// WithCommunicatorTimeout sets the timeout for the communication to respond.
+// Defaults to 10 seconds.
+func WithCommunicatorTimeout(t time.Duration) OrchestratorOption {
+	return func(o *Orchestrator) {
+		o.timeout = t
 	}
 }
 
@@ -195,6 +206,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 		}(worker)
 	}
 
+	t := time.NewTimer(o.timeout)
 	actual := make(map[string][]string)
 	for i := 0; i < len(o.workers); i++ {
 		select {
@@ -204,6 +216,9 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 			actual[r.name] = r.actual
 		case err := <-errs:
 			o.log.Printf("Error trying to list tasks from %s: %s", err.name, err.err)
+		case <-t.C:
+			o.log.Printf("Communicator timeout. Using results available...")
+			break
 		}
 	}
 
