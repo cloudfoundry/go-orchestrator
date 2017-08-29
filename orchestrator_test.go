@@ -73,6 +73,14 @@ func TestOrchestrator(t *testing.T) {
 					"task-1",
 					"task-2",
 				))
+
+				ctx := t.spy.listCtx["worker-0"][0]
+				_, ok := ctx.Deadline()
+				Expect(t, ok).To(BeTrue())
+
+				ctx = t.spy.addedCtx["worker-0"][0]
+				_, ok = ctx.Deadline()
+				Expect(t, ok).To(BeTrue())
 			})
 		})
 
@@ -117,6 +125,10 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, t.spy.removed["worker-2"]).To(HaveLen(0))
 
 				Expect(t, t.spy.removed["worker-0"]).To(Contain("extra"))
+
+				ctx := t.spy.removedCtx["worker-0"][0]
+				_, ok := ctx.Deadline()
+				Expect(t, ok).To(BeTrue())
 			})
 		})
 
@@ -296,20 +308,26 @@ func TestOrchestrator(t *testing.T) {
 type spyCommunicator struct {
 	mu sync.Mutex
 
-	block    map[string]bool
-	listErrs map[string]error
-	actual   map[string][]string
-	added    map[string][]string
-	removed  map[string][]string
+	block      map[string]bool
+	listErrs   map[string]error
+	actual     map[string][]string
+	added      map[string][]string
+	removed    map[string][]string
+	listCtx    map[string][]context.Context
+	addedCtx   map[string][]context.Context
+	removedCtx map[string][]context.Context
 }
 
 func newSpyCommunicator() *spyCommunicator {
 	return &spyCommunicator{
-		block:    make(map[string]bool),
-		listErrs: make(map[string]error),
-		actual:   make(map[string][]string),
-		added:    make(map[string][]string),
-		removed:  make(map[string][]string),
+		block:      make(map[string]bool),
+		listCtx:    make(map[string][]context.Context),
+		listErrs:   make(map[string]error),
+		actual:     make(map[string][]string),
+		added:      make(map[string][]string),
+		addedCtx:   make(map[string][]context.Context),
+		removedCtx: make(map[string][]context.Context),
+		removed:    make(map[string][]string),
 	}
 }
 
@@ -322,6 +340,7 @@ func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.listCtx[worker] = append(s.listCtx[worker], ctx)
 	return s.actual[worker], s.listErrs[worker]
 }
 
@@ -330,6 +349,7 @@ func (s *spyCommunicator) Add(ctx context.Context, worker string, task string) e
 	defer s.mu.Unlock()
 
 	s.added[worker] = append(s.added[worker], task)
+	s.addedCtx[worker] = append(s.addedCtx[worker], ctx)
 	return nil
 }
 
@@ -338,5 +358,6 @@ func (s *spyCommunicator) Remove(ctx context.Context, worker string, task string
 	defer s.mu.Unlock()
 
 	s.removed[worker] = append(s.removed[worker], task)
+	s.removedCtx[worker] = append(s.removedCtx[worker], ctx)
 	return nil
 }

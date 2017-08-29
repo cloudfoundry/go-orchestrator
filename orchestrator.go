@@ -51,6 +51,8 @@ func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 
 // Communicator manages the intra communication between the Orchestrator and
 // the node cluster. Each method must be safe to call on many go-routines.
+// The given context represents the state of the term. Therefore, the
+// Communicator is expected to cancel immediately if the context is done.
 type Communicator interface {
 	// List returns the workload from the given worker.
 	List(ctx context.Context, worker string) ([]string, error)
@@ -103,7 +105,8 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 		for _, task := range tasks {
 			// Remove the task from the workers.
 			o.log.Printf("Removing task %s from %s.", task, worker)
-			o.c.Remove(ctx, worker, task)
+			removeCtx, _ := context.WithTimeout(ctx, o.timeout)
+			o.c.Remove(removeCtx, worker, task)
 		}
 	}
 
@@ -158,7 +161,8 @@ func (o *Orchestrator) assignTask(
 
 		// Assign the task to the worker.
 		o.log.Printf("Adding task %s to %s.", task, info.name)
-		o.c.Add(ctx, info.name, task)
+		addCtx, _ := context.WithTimeout(ctx, o.timeout)
+		o.c.Add(addCtx, info.name, task)
 		break
 	}
 	return counts, false
@@ -192,11 +196,12 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 		err    error
 	}
 
+	listCtx, _ := context.WithTimeout(ctx, o.timeout)
 	results := make(chan result, len(o.workers))
 	errs := make(chan result, len(o.workers))
 	for _, worker := range o.workers {
 		go func(worker string) {
-			r, err := o.c.List(ctx, worker)
+			r, err := o.c.List(listCtx, worker)
 			if err != nil {
 				errs <- result{name: worker, err: err}
 				return
