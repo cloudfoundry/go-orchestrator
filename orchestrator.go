@@ -57,10 +57,15 @@ type Communicator interface {
 	// List returns the workload from the given worker.
 	List(ctx context.Context, worker string) ([]string, error)
 
-	// Add adds the given task to the worker.
+	// Add adds the given task to the worker. The error only logged (for now).
+	// It is assumed that if the worker returns an error trying to update, the
+	// next term will fix the problem and move the task elsewhere.
 	Add(ctx context.Context, worker, task string) error
 
-	// Removes the given task from the worker.
+	// Removes the given task from the worker. The error is only logged (for
+	// now). It is assumed that if the worker is returning an error, then it
+	// is either not doing the task because the worker is down, or there is a
+	// network partition and a future term will fix the problem.
 	Remove(ctx context.Context, worker, task string) error
 }
 
