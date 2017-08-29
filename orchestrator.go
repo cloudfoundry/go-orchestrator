@@ -211,6 +211,7 @@ func (o *Orchestrator) assignTask(
 	return counts
 }
 
+// countInfo stores information used to assign tasks to workers.
 type countInfo struct {
 	name  string
 	count int
