@@ -279,6 +279,13 @@ func (o *Orchestrator) AddTask(task string) {
 func (o *Orchestrator) RemoveTask(task string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	idx := o.contains(task, o.expectedTasks)
+	if idx < 0 {
+		return
+	}
+
+	o.expectedTasks = append(o.expectedTasks[:idx], o.expectedTasks[idx+1:]...)
 }
 
 // UpdateTasks overwrites the expected task list. The update will not take
