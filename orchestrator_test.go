@@ -2,6 +2,7 @@ package orchestrate_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -231,21 +232,51 @@ func TestOrchestrator(t *testing.T) {
 				)).To(HaveLen(0))
 			})
 		})
+
+		o.Group("with a worker returning an error for list", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.listErrs["worker-1"] = errors.New("some-error")
+
+				return t
+			})
+
+			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(HaveLen(3))
+
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(Contain(
+					"task-0",
+					"task-1",
+					"task-2",
+				))
+			})
+		})
 	})
 }
 
 type spyCommunicator struct {
-	mu      sync.Mutex
-	actual  map[string][]string
-	added   map[string][]string
-	removed map[string][]string
+	mu sync.Mutex
+
+	listErrs map[string]error
+	actual   map[string][]string
+	added    map[string][]string
+	removed  map[string][]string
 }
 
 func newSpyCommunicator() *spyCommunicator {
 	return &spyCommunicator{
-		actual:  make(map[string][]string),
-		added:   make(map[string][]string),
-		removed: make(map[string][]string),
+		listErrs: make(map[string]error),
+		actual:   make(map[string][]string),
+		added:    make(map[string][]string),
+		removed:  make(map[string][]string),
 	}
 }
 
@@ -253,7 +284,7 @@ func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.actual[worker], nil
+	return s.actual[worker], s.listErrs[worker]
 }
 
 func (s *spyCommunicator) Add(ctx context.Context, worker string, task string) error {

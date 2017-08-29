@@ -83,6 +83,7 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	// Gather the state of the world from the workers.
 	actual := o.collectActual(ctx)
 	toAdd, toRemove := o.delta(actual)
 	counts := o.counts(actual, toRemove)
@@ -170,18 +171,25 @@ func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo 
 }
 
 // collectActual reaches out to each worker and gets their state of the world.
-// Each worker is queried in parallel.
+// Each worker is queried in parallel. If a worker returns an error while
+// trying to list the tasks, it will be logged and not considered for what
+// workers should be assigned work.
 func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 	type result struct {
 		name   string
 		actual []string
+		err    error
 	}
 
 	results := make(chan result, len(o.workers))
+	errs := make(chan result, len(o.workers))
 	for _, worker := range o.workers {
 		go func(worker string) {
-			// TODO: handle errs
-			r, _ := o.c.List(ctx, worker)
+			r, err := o.c.List(ctx, worker)
+			if err != nil {
+				errs <- result{name: worker, err: err}
+				return
+			}
 
 			results <- result{name: worker, actual: r}
 		}(worker)
@@ -194,6 +202,8 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 			break
 		case r := <-results:
 			actual[r.name] = r.actual
+		case err := <-errs:
+			o.log.Printf("Error trying to list tasks from %s: %s", err.name, err.err)
 		}
 	}
 
