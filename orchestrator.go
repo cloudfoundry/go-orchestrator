@@ -104,6 +104,9 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	// Gather the state of the world from the workers.
 	actual := o.collectActual(ctx)
 	toAdd, toRemove := o.delta(actual)
+
+	// Rebalance tasks among workers.
+	toAdd, toRemove = o.rebalance(toAdd, toRemove, actual)
 	counts := o.counts(actual, toRemove)
 
 	for worker, tasks := range toRemove {
@@ -133,6 +136,38 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	}
 }
 
+// rebalance will rebalance tasks across the workers. If any worker has too
+// many tasks, it will be added to the remove map, and added to the returned
+// add slice.
+func (o *Orchestrator) rebalance(
+	toAdd []string,
+	toRemove,
+	actual map[string][]string,
+) ([]string, map[string][]string) {
+
+	counts := o.counts(actual, toRemove)
+	var total int
+	for _, c := range counts {
+		total += c.count
+	}
+
+	maxPerNode := total / len(counts)
+	if maxPerNode == 0 {
+		maxPerNode = 1
+	}
+
+	for _, c := range counts {
+		if c.count > maxPerNode {
+			task := actual[c.name][0]
+			o.log.Printf("Worker %s has too many tasks (%d). Moving %s.", c.name, c.count, task)
+			toRemove[c.name] = append(toRemove[c.name], task)
+			toAdd = append(toAdd, task)
+		}
+	}
+
+	return toAdd, toRemove
+}
+
 // assignTask tries to find a worker that does not have too many tasks
 // assigned. If it encounters a worker with too many tasks, it will remove
 // it from the pool and not assign the task.
@@ -150,7 +185,8 @@ func (o *Orchestrator) assignTask(
 		// pool for this term. This also accounts for there being a non-divisbile
 		// amount of tasks per workers.
 		info.count++
-		if info.count > len(o.expectedTasks)/len(actual)+len(o.expectedTasks)%len(actual) {
+		activeWorkers := len(actual)
+		if info.count > len(o.expectedTasks)/activeWorkers+len(o.expectedTasks)%activeWorkers {
 			counts = append(counts[:i], counts[i+1:]...)
 
 			// Return true saying the worker pool was adjusted and the task was

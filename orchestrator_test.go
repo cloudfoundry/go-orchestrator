@@ -174,6 +174,21 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
+		o.Group("with a worker who is empty", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.actual["worker-0"] = []string{"task-0", "task-1"}
+				t.spy.actual["worker-2"] = []string{"task-2"}
+				return t
+			})
+
+			o.Spec("evens out the tasks amongst the workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
+				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(1))
+			})
+		})
+
 		o.Group("with a workers updated", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-0"}
