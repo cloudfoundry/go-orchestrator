@@ -3,6 +3,7 @@ package orchestrate_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	orchestrate "github.com/apoydence/go-orchestrate"
@@ -40,9 +41,9 @@ func TestOrchestrator(t *testing.T) {
 			return t
 		})
 
-		o.Group("no tasks yet assigned", func() {
+		o.Group("with no tasks yet assigned", func() {
 			o.Spec("it evenly splits tasks among the cluster", func(t TO) {
-				t.o.NextTerm(context.TODO())
+				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.added).To(HaveLen(3))
 
@@ -50,23 +51,26 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
 				Expect(t, t.spy.added["worker-2"]).To(HaveLen(1))
 
-				var all []string
-				for _, tasks := range t.spy.added {
-					all = append(all, tasks...)
-				}
-
-				Expect(t, all).To(Contain("task-0", "task-1", "task-2"))
+				Expect(t, append(append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-1"]...),
+					t.spy.added["worker-2"]...,
+				)).To(Contain(
+					"task-0",
+					"task-1",
+					"task-2",
+				))
 			})
 		})
 
-		o.Group("one task assigned", func() {
+		o.Group("with one task assigned", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-1"}
 				return t
 			})
 
 			o.Spec("it does not replace the existing task", func(t TO) {
-				t.o.NextTerm(context.TODO())
+				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.added).To(HaveLen(2))
 
@@ -83,14 +87,14 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
-		o.Group("extra task", func() {
+		o.Group("with extra task", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"extra"}
 				return t
 			})
 
 			o.Spec("it removes the task", func(t TO) {
-				t.o.NextTerm(context.TODO())
+				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.added).To(HaveLen(3))
 				Expect(t, t.spy.removed).To(HaveLen(1))
@@ -103,7 +107,7 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
-		o.Group("too many of a task", func() {
+		o.Group("with too many of a task", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-0"}
 				t.spy.actual["worker-1"] = []string{"task-0"}
@@ -111,16 +115,44 @@ func TestOrchestrator(t *testing.T) {
 			})
 
 			o.Spec("it removes the task and adds the required", func(t TO) {
-				t.o.NextTerm(context.TODO())
+				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.removed).To(HaveLen(1))
 				Expect(t, t.spy.added).To(HaveLen(2))
+			})
+		})
+
+		o.Group("with a worker removed", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.actual["worker-0"] = []string{"task-0"}
+				t.spy.actual["worker-2"] = []string{"task-2"}
+
+				t.o.RemoveWorker("worker-1")
+				return t
+			})
+
+			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(HaveLen(1))
+
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(Contain(
+					"task-1",
+				))
 			})
 		})
 	})
 }
 
 type spyCommunicator struct {
+	mu      sync.Mutex
 	actual  map[string][]string
 	added   map[string][]string
 	removed map[string][]string
@@ -135,15 +167,24 @@ func newSpyCommunicator() *spyCommunicator {
 }
 
 func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.actual[worker], nil
 }
 
 func (s *spyCommunicator) Add(ctx context.Context, worker string, task string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.added[worker] = append(s.added[worker], task)
 	return nil
 }
 
 func (s *spyCommunicator) Remove(ctx context.Context, worker string, task string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.removed[worker] = append(s.removed[worker], task)
 	return nil
 }

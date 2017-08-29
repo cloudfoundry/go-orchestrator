@@ -45,7 +45,7 @@ func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 }
 
 // Communicator manages the intra communication between the Orchestrator and
-// the node cluster.
+// the node cluster. Each method must be safe to call on many go-routines.
 type Communicator interface {
 	// List returns the workload from the given worker.
 	List(ctx context.Context, worker string) ([]string, error)
@@ -85,26 +85,75 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	}
 
 	for _, task := range toAdd {
-		for worker, count := range counts {
-			count++
-			if count > len(o.expectedTasks)/len(actual) {
-				delete(counts, worker)
+		for {
+			var tryAgain bool
+			counts, tryAgain = o.assignTask(ctx,
+				task,
+				counts,
+				actual,
+			)
+
+			if tryAgain {
+				// Worker pool was adjusted and task was not assigned.
 				continue
 			}
-			counts[worker] = count
-
-			o.c.Add(ctx, worker, task)
 			break
 		}
 	}
 }
 
-func (o *Orchestrator) counts(actual, toRemove map[string][]string) map[string]int {
-	m := make(map[string]int)
-	for k, v := range actual {
-		m[k] = len(v) - len(toRemove[k])
+// assignTask tries to find a worker that does not have too many tasks
+// assigned. If it encounters a worker with too many tasks, it will remove
+// it from the pool and not assign the task.
+func (o *Orchestrator) assignTask(
+	ctx context.Context,
+	task string,
+	counts []countInfo,
+	actual map[string][]string,
+) (c []countInfo, doOver bool) {
+
+	for i, info := range counts {
+
+		// Ensure that each worker gets an even amount of work assigned.
+		// Therefore if a worker gets its fair share, remove it from the worker
+		// pool for this term. This also accounts for there being a non-divisbile
+		// amount of tasks per workers.
+		info.count++
+		if info.count > len(o.expectedTasks)/len(actual)+len(o.expectedTasks)%len(actual) {
+			counts = append(counts[:i], counts[i+1:]...)
+
+			// Return true saying the worker pool was adjusted and the task was
+			// not assigned.
+			return counts, true
+		}
+
+		// Update the count for the worker.
+		counts[i] = countInfo{
+			name:  info.name,
+			count: info.count,
+		}
+
+		// Assign the task to the worker.
+		o.c.Add(ctx, info.name, task)
+		break
 	}
-	return m
+	return counts, false
+}
+
+type countInfo struct {
+	name  string
+	count int
+}
+
+func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo {
+	var results []countInfo
+	for k, v := range actual {
+		results = append(results, countInfo{
+			name:  k,
+			count: len(v) - len(toRemove[k]),
+		})
+	}
+	return results
 }
 
 func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
@@ -197,6 +246,13 @@ func (o *Orchestrator) AddWorker(worker string) {
 func (o *Orchestrator) RemoveWorker(worker string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	idx := o.contains(worker, o.workers)
+	if idx < 0 {
+		return
+	}
+
+	o.workers = append(o.workers[:idx], o.workers[idx+1:]...)
 }
 
 // UpdateWorkers overwrites the expected worker list. The update will not take
