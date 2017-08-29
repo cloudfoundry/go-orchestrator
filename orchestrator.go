@@ -261,6 +261,8 @@ func (o *Orchestrator) RemoveWorker(worker string) {
 func (o *Orchestrator) UpdateWorkers(workers []string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	o.workers = workers
 }
 
 // AddTask adds a new task to the expected workload. The update will not take
@@ -294,4 +296,6 @@ func (o *Orchestrator) RemoveTask(task string) {
 func (o *Orchestrator) UpdateTasks(tasks []string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	o.expectedTasks = tasks
 }

@@ -149,6 +149,33 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
+		o.Group("with a workers updated", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.actual["worker-0"] = []string{"task-0"}
+				t.spy.actual["worker-2"] = []string{"task-2"}
+
+				t.o.UpdateWorkers([]string{"worker-0", "worker-2"})
+				return t
+			})
+
+			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(HaveLen(1))
+
+				Expect(t, append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-2"]...,
+				)).To(Contain(
+					"task-1",
+				))
+			})
+		})
+
 		o.Group("with a task removed", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-0"}
@@ -171,7 +198,30 @@ func TestOrchestrator(t *testing.T) {
 					t.spy.added["worker-2"]...,
 				)).To(HaveLen(0))
 			})
+		})
 
+		o.Group("with task list updated", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.spy.actual["worker-0"] = []string{"task-0"}
+				t.spy.actual["worker-1"] = []string{"task-1"}
+				t.spy.actual["worker-2"] = []string{"task-2"}
+
+				t.o.UpdateTasks([]string{"task-0", "task-2"})
+				return t
+			})
+
+			o.Spec("removes the tasks from the worker", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(1))
+				Expect(t, t.spy.removed["worker-1"]).To(Contain("task-1"))
+
+				Expect(t, append(append(
+					t.spy.added["worker-0"],
+					t.spy.added["worker-1"]...),
+					t.spy.added["worker-2"]...,
+				)).To(HaveLen(0))
+			})
 		})
 	})
 }
