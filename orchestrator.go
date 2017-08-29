@@ -13,6 +13,7 @@ package orchestrate
 
 import (
 	"context"
+	"io/ioutil"
 	"log"
 	"sync"
 )
@@ -23,7 +24,7 @@ import (
 // The expected task list can be altered via AddTask, RemoveTask and
 // UpdateTasks. Each method is safe to be called on multiple go-routines.
 type Orchestrator struct {
-	log *log.Logger
+	log Logger
 	c   Communicator
 
 	mu            sync.Mutex
@@ -34,7 +35,8 @@ type Orchestrator struct {
 // New creates a new Orchestrator.
 func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 	o := &Orchestrator{
-		c: c,
+		c:   c,
+		log: log.New(ioutil.Discard, "", 0),
 	}
 
 	for _, opt := range opts {
@@ -60,8 +62,12 @@ type Communicator interface {
 //OrchestratorOption configures an Orchestrator.
 type OrchestratorOption func(*Orchestrator)
 
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
 // WithLogger sets the logger for the Orchestrator.
-func WithLogger(l *log.Logger) OrchestratorOption {
+func WithLogger(l Logger) OrchestratorOption {
 	return func(o *Orchestrator) {
 		o.log = l
 	}
@@ -71,6 +77,9 @@ func WithLogger(l *log.Logger) OrchestratorOption {
 // attempts to fix the delta between actual and expected. The lifecycle of
 // the term is managed by the given context.
 func (o *Orchestrator) NextTerm(ctx context.Context) {
+	o.log.Printf("Starting term...")
+	o.log.Printf("Finished term.")
+
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -80,6 +89,8 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 
 	for worker, tasks := range toRemove {
 		for _, task := range tasks {
+			// Remove the task from the workers.
+			o.log.Printf("Removing task %s from %s.", task, worker)
 			o.c.Remove(ctx, worker, task)
 		}
 	}
@@ -134,6 +145,7 @@ func (o *Orchestrator) assignTask(
 		}
 
 		// Assign the task to the worker.
+		o.log.Printf("Adding task %s to %s.", task, info.name)
 		o.c.Add(ctx, info.name, task)
 		break
 	}
@@ -145,6 +157,7 @@ type countInfo struct {
 	count int
 }
 
+// counts looks at each worker and gathers the number of tasks each has.
 func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo {
 	var results []countInfo
 	for k, v := range actual {
@@ -156,6 +169,8 @@ func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo 
 	return results
 }
 
+// collectActual reaches out to each worker and gets their state of the world.
+// Each worker is queried in parallel.
 func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 	type result struct {
 		name   string
@@ -185,6 +200,8 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 	return actual
 }
 
+// delta finds what should be added and removed to make actual match the
+// expected.
 func (o *Orchestrator) delta(actual map[string][]string) (toAdd []string, toRemove map[string][]string) {
 	toRemove = make(map[string][]string)
 	expectedTasks := make([]string, len(o.expectedTasks))
@@ -210,6 +227,8 @@ func (o *Orchestrator) delta(actual map[string][]string) (toAdd []string, toRemo
 	return toAdd, toRemove
 }
 
+// hasExpected looks at each task in the given actual list and ensures
+// a worker node is servicing the task.
 func (o *Orchestrator) hasExpected(task string, actual map[string][]string) bool {
 	for _, a := range actual {
 		if o.contains(task, a) >= 0 {
@@ -220,9 +239,11 @@ func (o *Orchestrator) hasExpected(task string, actual map[string][]string) bool
 	return false
 }
 
-func (o *Orchestrator) contains(task string, tasks []string) int {
-	for i, t := range tasks {
-		if t == task {
+// contains returns the index of the given string (x) in the slice y. If the
+// string is not present in the slice, it returns -1.
+func (o *Orchestrator) contains(x string, y []string) int {
+	for i, t := range y {
+		if t == x {
 			return i
 		}
 	}

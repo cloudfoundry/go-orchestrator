@@ -3,6 +3,9 @@ package orchestrate_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 	"sync"
 	"testing"
 
@@ -25,9 +28,14 @@ func TestOrchestrator(t *testing.T) {
 
 	o.BeforeEach(func(t *testing.T) TO {
 		spy := newSpyCommunicator()
+		logger := log.New(ioutil.Discard, "", 0)
+		if testing.Verbose() {
+			logger = log.New(os.Stderr, "[Orchestrator] ", 0)
+		}
+
 		return TO{
 			T:   t,
-			o:   orchestrate.New(spy),
+			o:   orchestrate.New(spy, orchestrate.WithLogger(logger)),
 			spy: spy,
 		}
 	})
