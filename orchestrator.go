@@ -121,21 +121,12 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	for task, missing := range toAdd {
 		history := make(map[string]bool)
 		for i := 0; i < missing; i++ {
-			for {
-				var tryAgain bool
-				counts, tryAgain = o.assignTask(ctx,
-					task,
-					counts,
-					actual,
-					history,
-				)
-
-				if tryAgain {
-					// Worker pool was adjusted and task was not assigned.
-					continue
-				}
-				break
-			}
+			counts = o.assignTask(ctx,
+				task,
+				counts,
+				actual,
+				history,
+			)
 		}
 	}
 }
@@ -174,14 +165,14 @@ func (o *Orchestrator) rebalance(
 
 // assignTask tries to find a worker that does not have too many tasks
 // assigned. If it encounters a worker with too many tasks, it will remove
-// it from the pool and not assign the task.
+// it from the pool and try again.
 func (o *Orchestrator) assignTask(
 	ctx context.Context,
 	task string,
 	counts []countInfo,
 	actual map[string][]string,
 	history map[string]bool,
-) (c []countInfo, doOver bool) {
+) []countInfo {
 
 	for i, info := range counts {
 		// Ensure that each worker gets an even amount of work assigned.
@@ -195,7 +186,7 @@ func (o *Orchestrator) assignTask(
 
 			// Return true saying the worker pool was adjusted and the task was
 			// not assigned.
-			return counts, true
+			return o.assignTask(ctx, task, counts, actual, history)
 		}
 
 		// Ensure we haven't assigned this task to the worker already.
@@ -216,7 +207,8 @@ func (o *Orchestrator) assignTask(
 		o.c.Add(addCtx, info.name, task)
 		break
 	}
-	return counts, false
+
+	return counts
 }
 
 type countInfo struct {
