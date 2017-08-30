@@ -72,7 +72,10 @@ type Communicator interface {
 //OrchestratorOption configures an Orchestrator.
 type OrchestratorOption func(*Orchestrator)
 
+// Logger is used to write information.
 type Logger interface {
+	// Print calls l.Output to print to the logger. Arguments are handled in
+	// the manner of fmt.Print.
 	Printf(format string, v ...interface{})
 }
 
