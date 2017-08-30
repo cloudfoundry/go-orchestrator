@@ -347,6 +347,13 @@ func (o *Orchestrator) AddWorker(worker string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	// Ensure we don't alreay have this worker
+	for _, w := range o.workers {
+		if w == worker {
+			return
+		}
+	}
+
 	o.workers = append(o.workers, worker)
 }
 
@@ -387,6 +394,13 @@ type Task struct {
 func (o *Orchestrator) AddTask(task string, opts ...TaskOption) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	// Ensure we don't already have this task
+	for _, t := range o.expectedTasks {
+		if task == t.Name {
+			return
+		}
+	}
 
 	t := Task{Name: task, Instances: 1}
 	for _, opt := range opts {

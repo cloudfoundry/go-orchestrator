@@ -51,6 +51,10 @@ func TestOrchestrator(t *testing.T) {
 				t.o.AddWorker(fmt.Sprintf("worker-%d", i))
 				t.o.AddTask(fmt.Sprintf("task-%d", i))
 			}
+
+			// Can tolerate the same worker and task added twice
+			t.o.AddWorker("worker-0")
+			t.o.AddTask("task-0")
 			return t
 		})
 
