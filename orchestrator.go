@@ -361,6 +361,7 @@ func (o *Orchestrator) AddWorker(worker string) {
 		}
 	}
 
+	o.log.Printf("Adding worker %s", worker)
 	o.workers = append(o.workers, worker)
 }
 
@@ -376,6 +377,7 @@ func (o *Orchestrator) RemoveWorker(worker string) {
 		return
 	}
 
+	o.log.Printf("Removing worker %s", worker)
 	o.workers = append(o.workers[:idx], o.workers[idx+1:]...)
 }
 
