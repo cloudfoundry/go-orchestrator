@@ -32,6 +32,10 @@ type Orchestrator struct {
 	mu            sync.Mutex
 	workers       []string
 	expectedTasks []Task
+
+	// LastActual is set each term. It is only used for a user who wants to
+	// know the state of the worker cluster from the last term.
+	lastActual []WorkerState
 }
 
 // New creates a new Orchestrator.
@@ -105,7 +109,8 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	defer o.mu.Unlock()
 
 	// Gather the state of the world from the workers.
-	actual := o.collectActual(ctx)
+	var actual map[string][]string
+	actual, o.lastActual = o.collectActual(ctx)
 	toAdd, toRemove := o.delta(actual)
 
 	// Rebalance tasks among workers.
@@ -240,7 +245,7 @@ func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo 
 // Each worker is queried in parallel. If a worker returns an error while
 // trying to list the tasks, it will be logged and not considered for what
 // workers should be assigned work.
-func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
+func (o *Orchestrator) collectActual(ctx context.Context) (map[string][]string, []WorkerState) {
 	type result struct {
 		name   string
 		actual []string
@@ -263,6 +268,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 	}
 
 	t := time.NewTimer(o.timeout)
+	var state []WorkerState
 	actual := make(map[string][]string)
 	for i := 0; i < len(o.workers); i++ {
 		select {
@@ -270,6 +276,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 			break
 		case r := <-results:
 			actual[r.name] = r.actual
+			state = append(state, WorkerState{Name: r.name, Tasks: r.actual})
 		case err := <-errs:
 			o.log.Printf("Error trying to list tasks from %s: %s", err.name, err.err)
 		case <-t.C:
@@ -278,7 +285,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[string][]string {
 		}
 	}
 
-	return actual
+	return actual, state
 }
 
 // delta finds what should be added and removed to make actual match the
@@ -416,6 +423,7 @@ func (o *Orchestrator) AddTask(task string, opts ...TaskOption) {
 		opt(&t)
 	}
 
+	o.log.Printf("Adding task %s with instances=%d", t.Name, t.Instances)
 	o.expectedTasks = append(o.expectedTasks, t)
 }
 
@@ -441,6 +449,7 @@ func (o *Orchestrator) RemoveTask(task string) {
 		return
 	}
 
+	o.log.Printf("Removing task %s", task)
 	o.expectedTasks = append(o.expectedTasks[:idx], o.expectedTasks[idx+1:]...)
 }
 
@@ -459,4 +468,22 @@ func (o *Orchestrator) ListExpectedTasks() []Task {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.expectedTasks
+}
+
+// WorkerState stores the state of a worker.
+type WorkerState struct {
+	// Name is the given name of a worker.
+	Name string
+
+	// Tasks is the task names the worker is servicing.
+	Tasks []string
+}
+
+// LastActual returns the actual from the last term. It will return nil
+// before the first term.
+func (o *Orchestrator) LastActual() []WorkerState {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return o.lastActual
 }

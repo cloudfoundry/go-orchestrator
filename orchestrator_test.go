@@ -67,7 +67,9 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, t.spy.added["worker-0"]).To(HaveLen(1))
 				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
 				Expect(t, t.spy.added["worker-2"]).To(HaveLen(1))
+
 				Expect(t, t.o.ListExpectedTasks()).To(HaveLen(3))
+				Expect(t, t.o.LastActual()).To(HaveLen(3))
 
 				Expect(t, append(append(
 					t.spy.added["worker-0"],
