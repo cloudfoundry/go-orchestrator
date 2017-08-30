@@ -144,6 +144,10 @@ func (o *Orchestrator) rebalance(
 ) (map[string]int, map[string][]string) {
 
 	counts := o.counts(actual, toRemove)
+	if len(counts) == 0 {
+		return toAdd, toRemove
+	}
+
 	var total int
 	for _, c := range counts {
 		total += c.count

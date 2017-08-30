@@ -353,6 +353,10 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 	})
+
+	o.Spec("handles having 0 workers", func(t TO) {
+		t.o.NextTerm(context.Background())
+	})
 }
 
 type spyCommunicator struct {
