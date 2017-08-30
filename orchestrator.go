@@ -451,3 +451,10 @@ func (o *Orchestrator) UpdateTasks(tasks []Task) {
 
 	o.expectedTasks = tasks
 }
+
+// ListExpectedTasks returns the curent list of the expected tasks.
+func (o *Orchestrator) ListExpectedTasks() []Task {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.expectedTasks
+}
