@@ -103,7 +103,7 @@ func WithCommunicatorTimeout(t time.Duration) OrchestratorOption {
 // the term is managed by the given context.
 func (o *Orchestrator) NextTerm(ctx context.Context) {
 	o.log.Printf("Starting term...")
-	o.log.Printf("Finished term.")
+	defer o.log.Printf("Finished term.")
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
