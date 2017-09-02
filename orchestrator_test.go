@@ -218,6 +218,22 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
+		o.Group("with number of tasks doesn't cleanly fit in", func() {
+			o.BeforeEach(func(t TO) TO {
+				t.o.AddTask("task-3")
+				t.spy.actual["worker-0"] = []string{"task-0", "task-3"}
+				t.spy.actual["worker-1"] = []string{"task-1"}
+				t.spy.actual["worker-2"] = []string{"task-2"}
+				return t
+			})
+
+			o.Spec("doesn't move anything around", func(t TO) {
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(0))
+			})
+		})
+
 		o.Group("with a workers updated", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.spy.actual["worker-0"] = []string{"task-0"}

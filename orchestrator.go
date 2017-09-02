@@ -159,8 +159,8 @@ func (o *Orchestrator) rebalance(
 	}
 
 	maxPerNode := total / len(counts)
-	if maxPerNode == 0 {
-		maxPerNode = 1
+	if maxPerNode == 0 || total%len(counts) != 0 {
+		maxPerNode++
 	}
 
 	for _, c := range counts {
