@@ -115,7 +115,7 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with one task assigned", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-1"}
+				t.spy.actual["worker-0"] = []interface{}{"task-1"}
 				return t
 			})
 
@@ -128,7 +128,7 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
 				Expect(t, t.spy.added["worker-2"]).To(HaveLen(1))
 
-				var all []string
+				var all []interface{}
 				for _, tasks := range t.spy.added {
 					all = append(all, tasks...)
 				}
@@ -139,7 +139,7 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with extra task", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"extra"}
+				t.spy.actual["worker-0"] = []interface{}{"extra"}
 				return t
 			})
 
@@ -163,8 +163,8 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with too many of a task", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0"}
-				t.spy.actual["worker-1"] = []string{"task-0"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0"}
+				t.spy.actual["worker-1"] = []interface{}{"task-0"}
 				return t
 			})
 
@@ -178,8 +178,8 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a worker removed", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
 				t.o.RemoveWorker("worker-1")
 				return t
@@ -205,8 +205,8 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a worker who is empty", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0", "task-1"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0", "task-1"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 				return t
 			})
 
@@ -221,9 +221,9 @@ func TestOrchestrator(t *testing.T) {
 		o.Group("with number of tasks doesn't cleanly fit in", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.o.AddTask("task-3")
-				t.spy.actual["worker-0"] = []string{"task-0", "task-3"}
-				t.spy.actual["worker-1"] = []string{"task-1"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0", "task-3"}
+				t.spy.actual["worker-1"] = []interface{}{"task-1"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 				return t
 			})
 
@@ -236,10 +236,10 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a workers updated", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
-				t.o.UpdateWorkers([]string{"worker-0", "worker-2"})
+				t.o.UpdateWorkers([]interface{}{"worker-0", "worker-2"})
 				return t
 			})
 
@@ -263,9 +263,9 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a task removed", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0"}
-				t.spy.actual["worker-1"] = []string{"task-1"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0"}
+				t.spy.actual["worker-1"] = []interface{}{"task-1"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
 				t.o.RemoveTask("task-1")
 				return t
@@ -287,9 +287,9 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with task list updated", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []string{"task-0"}
-				t.spy.actual["worker-1"] = []string{"task-1"}
-				t.spy.actual["worker-2"] = []string{"task-2"}
+				t.spy.actual["worker-0"] = []interface{}{"task-0"}
+				t.spy.actual["worker-1"] = []interface{}{"task-1"}
+				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
 				t.o.UpdateTasks([]orchestrate.Task{
 					{
@@ -381,30 +381,30 @@ func TestOrchestrator(t *testing.T) {
 type spyCommunicator struct {
 	mu sync.Mutex
 
-	block      map[string]bool
-	listErrs   map[string]error
-	actual     map[string][]string
-	added      map[string][]string
-	removed    map[string][]string
-	listCtx    map[string][]context.Context
-	addedCtx   map[string][]context.Context
-	removedCtx map[string][]context.Context
+	block      map[interface{}]bool
+	listErrs   map[interface{}]error
+	actual     map[interface{}][]interface{}
+	added      map[interface{}][]interface{}
+	removed    map[interface{}][]interface{}
+	listCtx    map[interface{}][]context.Context
+	addedCtx   map[interface{}][]context.Context
+	removedCtx map[interface{}][]context.Context
 }
 
 func newSpyCommunicator() *spyCommunicator {
 	return &spyCommunicator{
-		block:      make(map[string]bool),
-		listCtx:    make(map[string][]context.Context),
-		listErrs:   make(map[string]error),
-		actual:     make(map[string][]string),
-		added:      make(map[string][]string),
-		addedCtx:   make(map[string][]context.Context),
-		removedCtx: make(map[string][]context.Context),
-		removed:    make(map[string][]string),
+		block:      make(map[interface{}]bool),
+		listCtx:    make(map[interface{}][]context.Context),
+		listErrs:   make(map[interface{}]error),
+		actual:     make(map[interface{}][]interface{}),
+		added:      make(map[interface{}][]interface{}),
+		addedCtx:   make(map[interface{}][]context.Context),
+		removedCtx: make(map[interface{}][]context.Context),
+		removed:    make(map[interface{}][]interface{}),
 	}
 }
 
-func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, error) {
+func (s *spyCommunicator) List(ctx context.Context, worker interface{}) ([]interface{}, error) {
 	if s.block[worker] {
 		var c chan int
 		<-c
@@ -417,7 +417,7 @@ func (s *spyCommunicator) List(ctx context.Context, worker string) ([]string, er
 	return s.actual[worker], s.listErrs[worker]
 }
 
-func (s *spyCommunicator) Add(ctx context.Context, worker string, task string) error {
+func (s *spyCommunicator) Add(ctx context.Context, worker interface{}, task interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -426,7 +426,7 @@ func (s *spyCommunicator) Add(ctx context.Context, worker string, task string) e
 	return nil
 }
 
-func (s *spyCommunicator) Remove(ctx context.Context, worker string, task string) error {
+func (s *spyCommunicator) Remove(ctx context.Context, worker interface{}, task interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -435,7 +435,7 @@ func (s *spyCommunicator) Remove(ctx context.Context, worker string, task string
 	return nil
 }
 
-func count(x string, y []string) int {
+func count(x interface{}, y []interface{}) int {
 	var total int
 	for _, s := range y {
 		if s == x {

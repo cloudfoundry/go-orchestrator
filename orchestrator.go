@@ -30,7 +30,7 @@ type Orchestrator struct {
 	timeout time.Duration
 
 	mu            sync.Mutex
-	workers       []string
+	workers       []interface{}
 	expectedTasks []Task
 
 	// LastActual is set each term. It is only used for a user who wants to
@@ -59,18 +59,18 @@ func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 // Communicator is expected to cancel immediately if the context is done.
 type Communicator interface {
 	// List returns the workload from the given worker.
-	List(ctx context.Context, worker string) ([]string, error)
+	List(ctx context.Context, worker interface{}) ([]interface{}, error)
 
 	// Add adds the given task to the worker. The error only logged (for now).
 	// It is assumed that if the worker returns an error trying to update, the
 	// next term will fix the problem and move the task elsewhere.
-	Add(ctx context.Context, worker, task string) error
+	Add(ctx context.Context, worker, task interface{}) error
 
 	// Removes the given task from the worker. The error is only logged (for
 	// now). It is assumed that if the worker is returning an error, then it
 	// is either not doing the task because the worker is down, or there is a
 	// network partition and a future term will fix the problem.
-	Remove(ctx context.Context, worker, task string) error
+	Remove(ctx context.Context, worker, task interface{}) error
 }
 
 //OrchestratorOption configures an Orchestrator.
@@ -109,7 +109,7 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	defer o.mu.Unlock()
 
 	// Gather the state of the world from the workers.
-	var actual map[string][]string
+	var actual map[interface{}][]interface{}
 	actual, o.lastActual = o.collectActual(ctx)
 	toAdd, toRemove := o.delta(actual)
 
@@ -127,7 +127,7 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	}
 
 	for task, missing := range toAdd {
-		history := make(map[string]bool)
+		history := make(map[interface{}]bool)
 		for i := 0; i < missing; i++ {
 			counts = o.assignTask(ctx,
 				task,
@@ -143,10 +143,10 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 // many tasks, it will be added to the remove map, and added to the returned
 // add slice.
 func (o *Orchestrator) rebalance(
-	toAdd map[string]int,
+	toAdd map[interface{}]int,
 	toRemove,
-	actual map[string][]string,
-) (map[string]int, map[string][]string) {
+	actual map[interface{}][]interface{},
+) (map[interface{}]int, map[interface{}][]interface{}) {
 
 	counts := o.counts(actual, toRemove)
 	if len(counts) == 0 {
@@ -180,10 +180,10 @@ func (o *Orchestrator) rebalance(
 // it from the pool and try again.
 func (o *Orchestrator) assignTask(
 	ctx context.Context,
-	task string,
+	task interface{},
 	counts []countInfo,
-	actual map[string][]string,
-	history map[string]bool,
+	actual map[interface{}][]interface{},
+	history map[interface{}]bool,
 ) []countInfo {
 
 	for i, info := range counts {
@@ -225,12 +225,12 @@ func (o *Orchestrator) assignTask(
 
 // countInfo stores information used to assign tasks to workers.
 type countInfo struct {
-	name  string
+	name  interface{}
 	count int
 }
 
 // counts looks at each worker and gathers the number of tasks each has.
-func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo {
+func (o *Orchestrator) counts(actual, toRemove map[interface{}][]interface{}) []countInfo {
 	var results []countInfo
 	for k, v := range actual {
 		results = append(results, countInfo{
@@ -245,10 +245,10 @@ func (o *Orchestrator) counts(actual, toRemove map[string][]string) []countInfo 
 // Each worker is queried in parallel. If a worker returns an error while
 // trying to list the tasks, it will be logged and not considered for what
 // workers should be assigned work.
-func (o *Orchestrator) collectActual(ctx context.Context) (map[string][]string, []WorkerState) {
+func (o *Orchestrator) collectActual(ctx context.Context) (map[interface{}][]interface{}, []WorkerState) {
 	type result struct {
-		name   string
-		actual []string
+		name   interface{}
+		actual []interface{}
 		err    error
 	}
 
@@ -256,7 +256,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[string][]string, 
 	results := make(chan result, len(o.workers))
 	errs := make(chan result, len(o.workers))
 	for _, worker := range o.workers {
-		go func(worker string) {
+		go func(worker interface{}) {
 			r, err := o.c.List(listCtx, worker)
 			if err != nil {
 				errs <- result{name: worker, err: err}
@@ -269,7 +269,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[string][]string, 
 
 	t := time.NewTimer(o.timeout)
 	var state []WorkerState
-	actual := make(map[string][]string)
+	actual := make(map[interface{}][]interface{})
 	for i := 0; i < len(o.workers); i++ {
 		select {
 		case <-ctx.Done():
@@ -290,9 +290,9 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[string][]string, 
 
 // delta finds what should be added and removed to make actual match the
 // expected.
-func (o *Orchestrator) delta(actual map[string][]string) (toAdd map[string]int, toRemove map[string][]string) {
-	toRemove = make(map[string][]string)
-	toAdd = make(map[string]int)
+func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[interface{}]int, toRemove map[interface{}][]interface{}) {
+	toRemove = make(map[interface{}][]interface{})
+	toAdd = make(map[interface{}]int)
 	expectedTasks := make([]Task, len(o.expectedTasks))
 	copy(expectedTasks, o.expectedTasks)
 
@@ -319,7 +319,7 @@ func (o *Orchestrator) delta(actual map[string][]string) (toAdd map[string]int, 
 
 // hasEnough looks at each task in the given actual list and ensures
 // a worker node is servicing the task.
-func (o *Orchestrator) hasEnough(t Task, actual map[string][]string) (needs int) {
+func (o *Orchestrator) hasEnough(t Task, actual map[interface{}][]interface{}) (needs int) {
 	var count int
 	for _, a := range actual {
 		if o.contains(t.Name, a) >= 0 {
@@ -330,9 +330,9 @@ func (o *Orchestrator) hasEnough(t Task, actual map[string][]string) (needs int)
 	return t.Instances - count
 }
 
-// contains returns the index of the given string (x) in the slice y. If the
-// string is not present in the slice, it returns -1.
-func (o *Orchestrator) contains(x string, y []string) int {
+// contains returns the index of the given interface{} (x) in the slice y. If the
+// interface{} is not present in the slice, it returns -1.
+func (o *Orchestrator) contains(x interface{}, y []interface{}) int {
 	for i, t := range y {
 		if t == x {
 			return i
@@ -344,7 +344,7 @@ func (o *Orchestrator) contains(x string, y []string) int {
 
 // containsTask returns the index of the given task name in the tasks. If the
 // task is not found, it returns -1.
-func (o *Orchestrator) containsTask(task string, tasks []Task) int {
+func (o *Orchestrator) containsTask(task interface{}, tasks []Task) int {
 	for i, t := range tasks {
 		if t.Name == task {
 			return i
@@ -357,7 +357,7 @@ func (o *Orchestrator) containsTask(task string, tasks []Task) int {
 // AddWorker adds a worker to the known worker cluster. The update will not
 // take affect until the next term. It is safe to invoke AddWorker,
 // RemoveWorkers and UpdateWorkers on multiple go-routines.
-func (o *Orchestrator) AddWorker(worker string) {
+func (o *Orchestrator) AddWorker(worker interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -375,7 +375,7 @@ func (o *Orchestrator) AddWorker(worker string) {
 // RemoveWorker removes a worker from the known worker cluster. The update
 // will not take affect until the next term. It is safe to invoke AddWorker,
 // RemoveWorkers and UpdateWorkers on multiple go-routines.
-func (o *Orchestrator) RemoveWorker(worker string) {
+func (o *Orchestrator) RemoveWorker(worker interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -391,7 +391,7 @@ func (o *Orchestrator) RemoveWorker(worker string) {
 // UpdateWorkers overwrites the expected worker list. The update will not take
 // affect until the next term. It is safe to invoke AddWorker, RemoveWorker
 // and UpdateWorkers on multiple go-routines.
-func (o *Orchestrator) UpdateWorkers(workers []string) {
+func (o *Orchestrator) UpdateWorkers(workers []interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -400,14 +400,14 @@ func (o *Orchestrator) UpdateWorkers(workers []string) {
 
 // Task stores the required information for a task.
 type Task struct {
-	Name      string
+	Name      interface{}
 	Instances int
 }
 
 // AddTask adds a new task to the expected workload. The update will not take
 // affect until the next term. It is safe to invoke AddTask, RemoveTask and
 // UpdateTasks on multiple go-routines.
-func (o *Orchestrator) AddTask(task string, opts ...TaskOption) {
+func (o *Orchestrator) AddTask(task interface{}, opts ...TaskOption) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -440,7 +440,7 @@ func WithTaskInstances(i int) TaskOption {
 // RemoveTask removes a task from the expected workload. The update will not
 // take affect until the next term. It is safe to invoke AddTask, RemoveTask
 // and UpdateTasks on multiple go-routines.
-func (o *Orchestrator) RemoveTask(task string) {
+func (o *Orchestrator) RemoveTask(task interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -473,10 +473,10 @@ func (o *Orchestrator) ListExpectedTasks() []Task {
 // WorkerState stores the state of a worker.
 type WorkerState struct {
 	// Name is the given name of a worker.
-	Name string
+	Name interface{}
 
 	// Tasks is the task names the worker is servicing.
-	Tasks []string
+	Tasks []interface{}
 }
 
 // LastActual returns the actual from the last term. It will return nil
