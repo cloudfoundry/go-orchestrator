@@ -322,7 +322,10 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 	for worker, tasks := range actual {
 		for _, task := range tasks {
 			if idx := o.containsTask(task, expectedTasks); idx >= 0 {
-				expectedTasks = append(expectedTasks[0:idx], expectedTasks[idx+1:]...)
+				expectedTasks[idx].Instances--
+				if expectedTasks[idx].Instances == 0 {
+					expectedTasks = append(expectedTasks[0:idx], expectedTasks[idx+1:]...)
+				}
 				continue
 			}
 			toRemove[worker] = append(toRemove[worker], task)
