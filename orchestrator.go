@@ -203,7 +203,7 @@ func (o *Orchestrator) assignTask(
 		}
 
 		// Ensure we haven't assigned this task to the worker already.
-		if history[info.name] {
+		if history[info.name] || o.contains(task, actual[info.name]) >= 0 {
 			continue
 		}
 		history[info.name] = true
