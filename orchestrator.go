@@ -193,7 +193,8 @@ func (o *Orchestrator) assignTask(
 		// amount of tasks per workers.
 		info.count++
 		activeWorkers := len(actual)
-		if info.count > len(o.expectedTasks)/activeWorkers+len(o.expectedTasks)%activeWorkers {
+		totalTasks := o.totalTaskCount()
+		if info.count > totalTasks/activeWorkers+totalTasks%activeWorkers {
 			counts = append(counts[:i], counts[i+1:]...)
 
 			// Return true saying the worker pool was adjusted and the task was
@@ -217,10 +218,24 @@ func (o *Orchestrator) assignTask(
 		o.log.Printf("Adding task %s to %s.", task, info.name)
 		addCtx, _ := context.WithTimeout(ctx, o.timeout)
 		o.c.Add(addCtx, info.name, task)
+
+		// Move adjusted count to end of slice to help with fairness
+		c := counts[i]
+		counts = append(append(counts[:i], counts[i+1:]...), c)
+
 		break
 	}
 
 	return counts
+}
+
+// totalTaskCount calculates the total number of expected task instances.
+func (o *Orchestrator) totalTaskCount() int {
+	var total int
+	for _, t := range o.expectedTasks {
+		total += t.Instances
+	}
+	return total
 }
 
 // countInfo stores information used to assign tasks to workers.

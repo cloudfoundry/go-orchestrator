@@ -94,11 +94,11 @@ func TestOrchestrator(t *testing.T) {
 		o.Group("with task that has 2 instances", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.o.UpdateTasks(nil)
-				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(3))
 				return t
 			})
 
 			o.Spec("it assigns the task to 2 different workers", func(t TO) {
+				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(3))
 				t.o.NextTerm(context.Background())
 
 				Expect(t, count("multi-task", append(append(
@@ -110,6 +110,33 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(1))
 				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(1))
 				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(1))
+			})
+
+			o.Group("with more total tasks than workers", func() {
+				o.Spec("it assigns each task to 2 different workers", func(t TO) {
+					t.o.AddTask("multi-task-0", orchestrate.WithTaskInstances(2))
+					t.o.AddTask("multi-task-1", orchestrate.WithTaskInstances(2))
+					t.o.AddTask("multi-task-2", orchestrate.WithTaskInstances(2))
+					t.o.NextTerm(context.Background())
+
+					Expect(t, count("multi-task-0", append(append(
+						t.spy.added["worker-0"],
+						t.spy.added["worker-1"]...),
+						t.spy.added["worker-2"]...,
+					))).To(Equal(2))
+
+					Expect(t, count("multi-task-1", append(append(
+						t.spy.added["worker-0"],
+						t.spy.added["worker-1"]...),
+						t.spy.added["worker-2"]...,
+					))).To(Equal(2))
+
+					Expect(t, count("multi-task-2", append(append(
+						t.spy.added["worker-0"],
+						t.spy.added["worker-1"]...),
+						t.spy.added["worker-2"]...,
+					))).To(Equal(2))
+				})
 			})
 		})
 
