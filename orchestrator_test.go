@@ -122,6 +122,16 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(1))
 			})
 
+			o.Spec("it removes any extra tasks", func(t TO) {
+				t.spy.actual["worker-0"] = []interface{}{"multi-task"}
+				t.spy.actual["worker-1"] = []interface{}{"multi-task"}
+				t.spy.actual["worker-2"] = []interface{}{"multi-task"}
+				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(2))
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.removed).To(HaveLen(1))
+			})
+
 			o.Group("with more total tasks than workers", func() {
 				o.Spec("it assigns each task to 2 different workers", func(t TO) {
 					t.o.AddTask("multi-task-0", orchestrate.WithTaskInstances(2))
