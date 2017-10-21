@@ -19,8 +19,9 @@ import (
 
 type TO struct {
 	*testing.T
-	spy *spyCommunicator
-	o   *orchestrate.Orchestrator
+	spy          *spyCommunicator
+	o            *orchestrate.Orchestrator
+	statsHandler func(orchestrate.TermStats)
 }
 
 func TestOrchestrator(t *testing.T) {
@@ -37,7 +38,8 @@ func TestOrchestrator(t *testing.T) {
 
 		return TO{
 			T: t,
-			o: orchestrate.New(spy,
+			o: orchestrate.New(
+				spy,
 				orchestrate.WithLogger(logger),
 				orchestrate.WithCommunicatorTimeout(time.Millisecond),
 			),
@@ -88,6 +90,24 @@ func TestOrchestrator(t *testing.T) {
 				ctx = t.spy.addedCtx["worker-0"][0]
 				_, ok = ctx.Deadline()
 				Expect(t, ok).To(BeTrue())
+			})
+
+		})
+
+		o.Group("stats", func() {
+			o.Spec("it reports that 2 workers responded to List", func(t TO) {
+				var stats orchestrate.TermStats
+				t.o = orchestrate.New(
+					t.spy,
+					orchestrate.WithStats(func(s orchestrate.TermStats) {
+						stats = s
+					}),
+				)
+				t.o.AddWorker("worker-0")
+				t.o.AddWorker("worker-1")
+				t.o.NextTerm(context.Background())
+
+				Expect(t, stats.WorkerCount).To(Equal(2))
 			})
 		})
 

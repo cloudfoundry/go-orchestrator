@@ -27,6 +27,7 @@ import (
 type Orchestrator struct {
 	log     Logger
 	c       Communicator
+	s       func(TermStats)
 	timeout time.Duration
 
 	mu            sync.Mutex
@@ -42,6 +43,7 @@ type Orchestrator struct {
 func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 	o := &Orchestrator{
 		c:       c,
+		s:       func(TermStats) {},
 		log:     log.New(ioutil.Discard, "", 0),
 		timeout: 10 * time.Second,
 	}
@@ -67,6 +69,23 @@ type Logger interface {
 func WithLogger(l Logger) OrchestratorOption {
 	return func(o *Orchestrator) {
 		o.log = l
+	}
+}
+
+// TermStats is the information about the last processed term. It is passed
+// to a stats handler. See WithStats().
+type TermStats struct {
+	// WorkerCount is the number of workers that responded without an error
+	// to a List request.
+	WorkerCount int
+}
+
+// WithStats sets the stats handler for the Orchestrator. The stats handler
+// is invoked for each term, with what the Orchestrator wrote to the
+// Communicator.
+func WithStats(f func(TermStats)) OrchestratorOption {
+	return func(o *Orchestrator) {
+		o.s = f
 	}
 }
 
@@ -102,9 +121,6 @@ type Communicator interface {
 // attempts to fix the delta between actual and expected. The lifecycle of
 // the term is managed by the given context.
 func (o *Orchestrator) NextTerm(ctx context.Context) {
-	o.log.Printf("Starting term...")
-	defer o.log.Printf("Finished term.")
-
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -137,6 +153,10 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 			)
 		}
 	}
+
+	o.s(TermStats{
+		WorkerCount: len(actual),
+	})
 }
 
 // rebalance will rebalance tasks across the workers. If any worker has too
