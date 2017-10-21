@@ -1,4 +1,4 @@
-package orchestrate_test
+package orchestrator_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	orchestrate "github.com/apoydence/go-orchestrate"
+	orchestrator "code.cloudfoundry.org/go-orchestrator"
 	"github.com/apoydence/onpar"
 	. "github.com/apoydence/onpar/expect"
 	. "github.com/apoydence/onpar/matchers"
@@ -20,8 +20,8 @@ import (
 type TO struct {
 	*testing.T
 	spy          *spyCommunicator
-	o            *orchestrate.Orchestrator
-	statsHandler func(orchestrate.TermStats)
+	o            *orchestrator.Orchestrator
+	statsHandler func(orchestrator.TermStats)
 }
 
 func TestOrchestrator(t *testing.T) {
@@ -38,10 +38,10 @@ func TestOrchestrator(t *testing.T) {
 
 		return TO{
 			T: t,
-			o: orchestrate.New(
+			o: orchestrator.New(
 				spy,
-				orchestrate.WithLogger(logger),
-				orchestrate.WithCommunicatorTimeout(time.Millisecond),
+				orchestrator.WithLogger(logger),
+				orchestrator.WithCommunicatorTimeout(time.Millisecond),
 			),
 			spy: spy,
 		}
@@ -96,10 +96,10 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("stats", func() {
 			o.Spec("it reports that 2 workers responded to List", func(t TO) {
-				var stats orchestrate.TermStats
-				t.o = orchestrate.New(
+				var stats orchestrator.TermStats
+				t.o = orchestrator.New(
 					t.spy,
-					orchestrate.WithStats(func(s orchestrate.TermStats) {
+					orchestrator.WithStats(func(s orchestrator.TermStats) {
 						stats = s
 					}),
 				)
@@ -118,7 +118,7 @@ func TestOrchestrator(t *testing.T) {
 			})
 
 			o.Spec("it assigns the task to 2 different workers", func(t TO) {
-				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(3))
+				t.o.AddTask("multi-task", orchestrator.WithTaskInstances(3))
 				t.o.NextTerm(context.Background())
 
 				Expect(t, count("multi-task", append(append(
@@ -135,7 +135,7 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("it removes stale task", func(t TO) {
 				t.spy.actual["worker-0"] = []interface{}{"multi-task-0", "multi-task-1"}
 				t.spy.actual["worker-1"] = []interface{}{"multi-task-0", "multi-task-1"}
-				t.o.AddTask("multi-task-0", orchestrate.WithTaskInstances(2))
+				t.o.AddTask("multi-task-0", orchestrator.WithTaskInstances(2))
 				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(1))
@@ -146,7 +146,7 @@ func TestOrchestrator(t *testing.T) {
 				t.spy.actual["worker-0"] = []interface{}{"multi-task"}
 				t.spy.actual["worker-1"] = []interface{}{"multi-task"}
 				t.spy.actual["worker-2"] = []interface{}{"multi-task"}
-				t.o.AddTask("multi-task", orchestrate.WithTaskInstances(2))
+				t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
 				t.o.NextTerm(context.Background())
 
 				Expect(t, t.spy.removed).To(HaveLen(1))
@@ -156,7 +156,7 @@ func TestOrchestrator(t *testing.T) {
 				o.Spec("it only assigns the task once", func(t TO) {
 					t.o.UpdateWorkers([]interface{}{"worker"})
 					t.spy.actual["worker"] = []interface{}{"multi-task"}
-					t.o.AddTask("multi-task", orchestrate.WithTaskInstances(2))
+					t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
 
 					t.o.NextTerm(context.Background())
 
@@ -166,9 +166,9 @@ func TestOrchestrator(t *testing.T) {
 
 			o.Group("with more total tasks than workers", func() {
 				o.Spec("it assigns each task to 2 different workers", func(t TO) {
-					t.o.AddTask("multi-task-0", orchestrate.WithTaskInstances(2))
-					t.o.AddTask("multi-task-1", orchestrate.WithTaskInstances(2))
-					t.o.AddTask("multi-task-2", orchestrate.WithTaskInstances(2))
+					t.o.AddTask("multi-task-0", orchestrator.WithTaskInstances(2))
+					t.o.AddTask("multi-task-1", orchestrator.WithTaskInstances(2))
+					t.o.AddTask("multi-task-2", orchestrator.WithTaskInstances(2))
 					t.o.NextTerm(context.Background())
 
 					Expect(t, count("multi-task-0", append(append(
@@ -370,7 +370,7 @@ func TestOrchestrator(t *testing.T) {
 				t.spy.actual["worker-1"] = []interface{}{"task-1"}
 				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
-				t.o.UpdateTasks([]orchestrate.Task{
+				t.o.UpdateTasks([]orchestrator.Task{
 					{
 						Name:      "task-0",
 						Instances: 1,

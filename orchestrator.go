@@ -1,4 +1,4 @@
-// Package orchestrate an algorithm that manages the work of a cluster of
+// Package orchestrator is an algorithm that manages the work of a cluster of
 // nodes. It ensures each piece of work has a worker assigned to it.
 //
 // The Orchestrator stores a set of expected tasks. Each term, it reaches out
@@ -9,7 +9,7 @@
 // The expected workload is stored in memory. Therefore, if the process is
 // restarted the task list is lost. A system with persistence is required to
 // ensure the workload is not lost (e.g., database).
-package orchestrate
+package orchestrator
 
 import (
 	"context"
