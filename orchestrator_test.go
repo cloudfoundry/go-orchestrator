@@ -127,9 +127,9 @@ func TestOrchestrator(t *testing.T) {
 					t.spy.added["worker-2"]...,
 				))).To(Equal(3))
 
-				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(1))
-				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(1))
-				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(1))
+				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(2))
+				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(2))
+				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(2))
 			})
 
 			o.Spec("it removes stale task", func(t TO) {
