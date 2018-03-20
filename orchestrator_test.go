@@ -111,7 +111,7 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
-		o.Group("with task that has 2 instances", func() {
+		o.Group("with task that has multiple instances", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.o.UpdateTasks(nil)
 				return t
@@ -130,6 +130,16 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(2))
 				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(2))
 				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(2))
+			})
+
+			o.Spec("rebalances without touching existing workers", func(t TO) {
+				for i := 0; i < 7; i++ {
+					t.spy.actual["worker-0"] = append(t.spy.actual["worker-0"], i)
+					t.o.AddTask(i, orchestrator.WithTaskInstances(3))
+				}
+				t.o.NextTerm(context.Background())
+
+				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(0))
 			})
 
 			o.Spec("it removes stale task", func(t TO) {
