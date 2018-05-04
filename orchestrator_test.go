@@ -41,7 +41,7 @@ func TestOrchestrator(t *testing.T) {
 			o: orchestrator.New(
 				spy,
 				orchestrator.WithLogger(logger),
-				orchestrator.WithCommunicatorTimeout(time.Millisecond),
+				orchestrator.WithCommunicatorTimeout(10*time.Millisecond),
 			),
 			spy: spy,
 		}
@@ -117,7 +117,7 @@ func TestOrchestrator(t *testing.T) {
 				return t
 			})
 
-			o.Spec("it assigns the task to 2 different workers", func(t TO) {
+			o.Spec("it assigns the task to 3 different workers", func(t TO) {
 				t.o.AddTask("multi-task", orchestrator.WithTaskInstances(3))
 				t.o.NextTerm(context.Background())
 
