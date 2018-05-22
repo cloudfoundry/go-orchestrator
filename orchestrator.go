@@ -136,7 +136,6 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	for worker, tasks := range toRemove {
 		for _, task := range tasks {
 			// Remove the task from the workers.
-			o.log.Printf("Removing task %s from %s.", task, worker)
 			removeCtx, _ := context.WithTimeout(ctx, o.timeout)
 			o.c.Remove(removeCtx, worker, task)
 		}
@@ -190,7 +189,6 @@ func (o *Orchestrator) rebalance(
 	for _, c := range counts {
 		if c.count > maxPerNode {
 			task := actual[c.name][0]
-			o.log.Printf("Worker %s has too many tasks (%d). Moving %s.", c.name, c.count, task)
 			toRemove[c.name] = append(toRemove[c.name], task)
 			toAdd[task]++
 		}
@@ -463,7 +461,6 @@ func (o *Orchestrator) AddTask(task interface{}, opts ...TaskOption) {
 		opt(&t)
 	}
 
-	o.log.Printf("Adding task %s with instances=%d", t.Name, t.Instances)
 	o.expectedTasks = append(o.expectedTasks, t)
 }
 
@@ -489,7 +486,6 @@ func (o *Orchestrator) RemoveTask(task interface{}) {
 		return
 	}
 
-	o.log.Printf("Removing task %s", task)
 	o.expectedTasks = append(o.expectedTasks[:idx], o.expectedTasks[idx+1:]...)
 }
 
