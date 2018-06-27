@@ -25,21 +25,24 @@ import (
 // Communicator is expected to cancel immediately if the context is done.
 type Communicator interface {
 	// List returns the workload from the given worker.
-	List(ctx context.Context, worker interface{}) ([]interface{}, error)
+	List(ctx context.Context) ([]interface{}, error)
 
 	// Add adds the given task to the worker. The error only logged (for now).
 	// It is assumed that if the worker returns an error trying to update, the
 	// next term will fix the problem and move the task elsewhere.
-	Add(ctx context.Context, worker, taskDefinition interface{}) error
+	Add(ctx context.Context, taskDefinition interface{}) error
 
 	// Removes the given task from the worker. The error is only logged (for
 	// now). It is assumed that if the worker is returning an error, then it
 	// is either not doing the task because the worker is down, or there is a
 	// network partition and a future term will fix the problem.
-	Remove(ctx context.Context, worker, taskDefinition interface{}) error
+	Remove(ctx context.Context, taskDefinition interface{}) error
 }
 
-type Worker interface{}
+type Worker struct {
+	Identifier interface{}
+	Communicator
+}
 
 // Orchestrator stores the expected workload and reaches out to the cluster
 // to see what the actual workload is. It then tries to fix the delta.
@@ -48,7 +51,6 @@ type Worker interface{}
 // UpdateTasks. Each method is safe to be called on multiple go-routines.
 type Orchestrator struct {
 	log     Logger
-	c       Communicator
 	s       func(TermStats)
 	timeout time.Duration
 
@@ -62,9 +64,8 @@ type Orchestrator struct {
 }
 
 // New creates a new Orchestrator.
-func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
+func New(opts ...OrchestratorOption) *Orchestrator {
 	o := &Orchestrator{
-		c:       c,
 		s:       func(TermStats) {},
 		log:     log.New(ioutil.Discard, "", 0),
 		timeout: 10 * time.Second,
@@ -96,7 +97,7 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 		for _, task := range tasks {
 			// Remove the task from the workers.
 			removeCtx, _ := context.WithTimeout(ctx, o.timeout)
-			o.c.Remove(removeCtx, worker, task)
+			worker.Remove(removeCtx, task)
 		}
 	}
 
@@ -133,7 +134,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) map[Worker][]interface
 	errs := make(chan result, len(o.workers))
 	for _, worker := range o.workers {
 		go func(worker Worker) {
-			listResults, err := o.c.List(listCtx, worker)
+			listResults, err := worker.List(listCtx)
 			if err != nil {
 				errs <- result{worker: worker, err: err}
 				return
@@ -209,6 +210,10 @@ func (o *Orchestrator) assignTask(
 	history map[Worker]bool,
 ) []workerLoad {
 	activeWorkers := len(actual)
+	if activeWorkers == 0 {
+		return workerLoads
+	}
+
 	totalTasks := o.totalTaskCount()
 	maxTaskCount := totalTasks/activeWorkers + totalTasks%activeWorkers
 
@@ -235,7 +240,7 @@ func (o *Orchestrator) assignTask(
 		// Assign the task to the worker.
 		o.log.Printf("Adding task %s to %s.", taskDefinition, loadInfo.worker)
 		addCtx, _ := context.WithTimeout(ctx, o.timeout)
-		o.c.Add(addCtx, loadInfo.worker, taskDefinition)
+		loadInfo.worker.Add(addCtx, taskDefinition)
 
 		// Move updated count to end of slice to help with fairness
 		workerLoads = append(
@@ -269,10 +274,9 @@ func (o *Orchestrator) AddWorker(worker Worker) {
 	defer o.mu.Unlock()
 
 	// Ensure we don't already have this worker
-	for _, w := range o.workers {
-		if w == worker {
-			return
-		}
+	idx := containsWorker(worker, o.workers)
+	if idx > -1 {
+		return
 	}
 
 	o.workers = append(o.workers, worker)
@@ -470,7 +474,7 @@ func containsTask(task interface{}, tasks []Task) int {
 // worker is not found, it returns -1.
 func containsWorker(worker Worker, workers []Worker) int {
 	for i, w := range workers {
-		if w == worker {
+		if w.Identifier == worker.Identifier {
 			return i
 		}
 	}

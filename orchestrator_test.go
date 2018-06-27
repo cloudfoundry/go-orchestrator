@@ -19,9 +19,9 @@ import (
 
 type TO struct {
 	*testing.T
-	spy          *spyCommunicator
-	o            *orchestrator.Orchestrator
-	statsHandler func(orchestrator.TermStats)
+	spyCommunicators map[string]*spyCommunicator
+	o                *orchestrator.Orchestrator
+	statsHandler     func(orchestrator.TermStats)
 }
 
 func TestOrchestrator(t *testing.T) {
@@ -30,7 +30,6 @@ func TestOrchestrator(t *testing.T) {
 	defer o.Run(t)
 
 	o.BeforeEach(func(t *testing.T) TO {
-		spy := newSpyCommunicator()
 		logger := log.New(ioutil.Discard, "", 0)
 		if testing.Verbose() {
 			logger = log.New(os.Stderr, "[Orchestrator] ", 0)
@@ -39,23 +38,26 @@ func TestOrchestrator(t *testing.T) {
 		return TO{
 			T: t,
 			o: orchestrator.New(
-				spy,
 				orchestrator.WithLogger(logger),
 				orchestrator.WithCommunicatorTimeout(10*time.Millisecond),
 			),
-			spy: spy,
+			spyCommunicators: make(map[string]*spyCommunicator),
 		}
 	})
 
 	o.Group("with 3 worker nodes and 3 tasks", func() {
 		o.BeforeEach(func(t TO) TO {
 			for i := 0; i < 3; i++ {
-				t.o.AddWorker(fmt.Sprintf("worker-%d", i))
+				workerId := fmt.Sprintf("worker-%d", i)
+				communicator := newSpyCommunicator()
+				t.spyCommunicators[workerId] = communicator
+
+				t.o.AddWorker(orchestrator.Worker{Identifier: workerId, Communicator: communicator})
 				t.o.AddTask(fmt.Sprintf("task-%d", i))
 			}
 
 			// Can tolerate the same worker and task added twice
-			t.o.AddWorker("worker-0")
+			t.o.AddWorker(orchestrator.Worker{Identifier: "worker-0"})
 			t.o.AddTask("task-0")
 			return t
 		})
@@ -64,48 +66,44 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("it evenly splits tasks among the cluster", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added).To(HaveLen(3))
-
-				Expect(t, t.spy.added["worker-0"]).To(HaveLen(1))
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
-				Expect(t, t.spy.added["worker-2"]).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-0"].added).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-2"].added).To(HaveLen(1))
 
 				Expect(t, t.o.ListExpectedTasks()).To(HaveLen(3))
 				Expect(t, t.o.LastActual()).To(HaveLen(3))
 
 				Expect(t, append(append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-1"]...),
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-1"].added...),
+					t.spyCommunicators["worker-2"].added...,
 				)).To(Contain(
 					"task-0",
 					"task-1",
 					"task-2",
 				))
 
-				ctx := t.spy.listCtx["worker-0"][0]
+				ctx := t.spyCommunicators["worker-0"].listCtx[0]
 				_, ok := ctx.Deadline()
 				Expect(t, ok).To(BeTrue())
 
-				ctx = t.spy.addedCtx["worker-0"][0]
+				ctx = t.spyCommunicators["worker-0"].addedCtx[0]
 				_, ok = ctx.Deadline()
 				Expect(t, ok).To(BeTrue())
 			})
-
 		})
 
 		o.Group("stats", func() {
 			o.Spec("it reports that 2 workers responded to List", func(t TO) {
 				var stats orchestrator.TermStats
-				t.o = orchestrator.New(
-					t.spy,
+				orch := orchestrator.New(
 					orchestrator.WithStats(func(s orchestrator.TermStats) {
 						stats = s
 					}),
 				)
-				t.o.AddWorker("worker-0")
-				t.o.AddWorker("worker-1")
-				t.o.NextTerm(context.Background())
+				orch.AddWorker(orchestrator.Worker{Identifier: "worker-0", Communicator: newSpyCommunicator()})
+				orch.AddWorker(orchestrator.Worker{Identifier: "worker-1", Communicator: newSpyCommunicator()})
+				orch.NextTerm(context.Background())
 
 				Expect(t, stats.WorkerCount).To(Equal(2))
 			})
@@ -122,55 +120,60 @@ func TestOrchestrator(t *testing.T) {
 				t.o.NextTerm(context.Background())
 
 				Expect(t, count("multi-task", append(append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-1"]...),
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-1"].added...),
+					t.spyCommunicators["worker-2"].added...,
 				))).To(Equal(3))
 
-				Expect(t, count("multi-task", t.spy.added["worker-0"])).To(BeBelow(2))
-				Expect(t, count("multi-task", t.spy.added["worker-1"])).To(BeBelow(2))
-				Expect(t, count("multi-task", t.spy.added["worker-2"])).To(BeBelow(2))
+				Expect(t, count("multi-task", t.spyCommunicators["worker-0"].added)).To(BeBelow(2))
+				Expect(t, count("multi-task", t.spyCommunicators["worker-1"].added)).To(BeBelow(2))
+				Expect(t, count("multi-task", t.spyCommunicators["worker-2"].added)).To(BeBelow(2))
 			})
 
 			o.Spec("rebalances without touching existing workers", func(t TO) {
 				for i := 0; i < 7; i++ {
-					t.spy.actual["worker-0"] = append(t.spy.actual["worker-0"], i)
+					t.spyCommunicators["worker-0"].actual = append(t.spyCommunicators["worker-0"].actual, i)
 					t.o.AddTask(i, orchestrator.WithTaskInstances(3))
 				}
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(HaveLen(0))
 			})
 
 			o.Spec("it removes stale task", func(t TO) {
-				t.spy.actual["worker-0"] = []interface{}{"multi-task-0", "multi-task-1"}
-				t.spy.actual["worker-1"] = []interface{}{"multi-task-0", "multi-task-1"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"multi-task-0", "multi-task-1"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"multi-task-0", "multi-task-1"}
 				t.o.AddTask("multi-task-0", orchestrator.WithTaskInstances(2))
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(1))
-				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(HaveLen(1))
 			})
 
 			o.Spec("it removes any extra tasks", func(t TO) {
-				t.spy.actual["worker-0"] = []interface{}{"multi-task"}
-				t.spy.actual["worker-1"] = []interface{}{"multi-task"}
-				t.spy.actual["worker-2"] = []interface{}{"multi-task"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"multi-task"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"multi-task"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"multi-task"}
 				t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed).To(HaveLen(1))
+				removed := append(t.spyCommunicators["worker-0"].removed,
+					append(t.spyCommunicators["worker-1"].removed,
+						t.spyCommunicators["worker-2"].removed...)...)
+				Expect(t, removed).To(HaveLen(1))
 			})
 
 			o.Group("with single worker", func() {
 				o.Spec("it only assigns the task once", func(t TO) {
-					t.o.UpdateWorkers([]orchestrator.Worker{"worker"})
-					t.spy.actual["worker"] = []interface{}{"multi-task"}
+					communicator := newSpyCommunicator()
+					t.spyCommunicators["worker"] = communicator
+					t.o.UpdateWorkers([]orchestrator.Worker{{Identifier: "worker", Communicator: communicator}})
+					t.spyCommunicators["worker"].actual = []interface{}{"multi-task"}
 					t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
 
 					t.o.NextTerm(context.Background())
 
-					Expect(t, t.spy.added["worker"]).To(HaveLen(0))
+					Expect(t, t.spyCommunicators["worker"].added).To(HaveLen(0))
 				})
 			})
 
@@ -182,21 +185,21 @@ func TestOrchestrator(t *testing.T) {
 					t.o.NextTerm(context.Background())
 
 					Expect(t, count("multi-task-0", append(append(
-						t.spy.added["worker-0"],
-						t.spy.added["worker-1"]...),
-						t.spy.added["worker-2"]...,
+						t.spyCommunicators["worker-0"].added,
+						t.spyCommunicators["worker-1"].added...),
+						t.spyCommunicators["worker-2"].added...,
 					))).To(Equal(2))
 
 					Expect(t, count("multi-task-1", append(append(
-						t.spy.added["worker-0"],
-						t.spy.added["worker-1"]...),
-						t.spy.added["worker-2"]...,
+						t.spyCommunicators["worker-0"].added,
+						t.spyCommunicators["worker-1"].added...),
+						t.spyCommunicators["worker-2"].added...,
 					))).To(Equal(2))
 
 					Expect(t, count("multi-task-2", append(append(
-						t.spy.added["worker-0"],
-						t.spy.added["worker-1"]...),
-						t.spy.added["worker-2"]...,
+						t.spyCommunicators["worker-0"].added,
+						t.spyCommunicators["worker-1"].added...),
+						t.spyCommunicators["worker-2"].added...,
 					))).To(Equal(2))
 				})
 			})
@@ -204,22 +207,20 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with one task assigned", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-1"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-1"}
 				return t
 			})
 
 			o.Spec("it does not replace the existing task", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added).To(HaveLen(2))
-
-				Expect(t, t.spy.added["worker-0"]).To(HaveLen(0))
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
-				Expect(t, t.spy.added["worker-2"]).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-0"].added).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-2"].added).To(HaveLen(1))
 
 				var all []interface{}
-				for _, tasks := range t.spy.added {
-					all = append(all, tasks...)
+				for _, spy := range t.spyCommunicators {
+					all = append(all, spy.added...)
 				}
 
 				Expect(t, all).To(Contain("task-0", "task-2"))
@@ -228,23 +229,20 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with extra task", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"extra"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"extra"}
 				return t
 			})
 
 			o.Spec("it removes the task", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added).To(HaveLen(3))
-				Expect(t, t.spy.removed).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-2"].removed).To(HaveLen(0))
 
-				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(1))
-				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(0))
-				Expect(t, t.spy.removed["worker-2"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(Contain("extra"))
 
-				Expect(t, t.spy.removed["worker-0"]).To(Contain("extra"))
-
-				ctx := t.spy.removedCtx["worker-0"][0]
+				ctx := t.spyCommunicators["worker-0"].removedCtx[0]
 				_, ok := ctx.Deadline()
 				Expect(t, ok).To(BeTrue())
 			})
@@ -252,40 +250,47 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with too many of a task", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0"}
-				t.spy.actual["worker-1"] = []interface{}{"task-0"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"task-0"}
 				return t
 			})
 
 			o.Spec("it removes the task and adds the required", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed).To(HaveLen(1))
-				Expect(t, t.spy.added).To(HaveLen(2))
+				removed := append(t.spyCommunicators["worker-0"].removed,
+					append(t.spyCommunicators["worker-1"].removed,
+						t.spyCommunicators["worker-2"].removed...)...)
+				Expect(t, removed).To(HaveLen(1))
+
+				added := append(t.spyCommunicators["worker-0"].added,
+					append(t.spyCommunicators["worker-1"].added,
+						t.spyCommunicators["worker-2"].added...)...)
+				Expect(t, added).To(HaveLen(2))
 			})
 		})
 
 		o.Group("with a worker removed", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 
-				t.o.RemoveWorker("worker-1")
+				t.o.RemoveWorker(orchestrator.Worker{Identifier: "worker-1"})
 				return t
 			})
 
 			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(0))
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(1))
 
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(Contain(
 					"task-1",
 				))
@@ -294,56 +299,59 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a worker who is empty", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0", "task-1"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0", "task-1"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 				return t
 			})
 
 			o.Spec("evens out the tasks amongst the workers", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(1))
-				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(HaveLen(1))
 			})
 		})
 
 		o.Group("with number of tasks doesn't cleanly fit in", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.o.AddTask("task-3")
-				t.spy.actual["worker-0"] = []interface{}{"task-0", "task-3"}
-				t.spy.actual["worker-1"] = []interface{}{"task-1"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0", "task-3"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"task-1"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 				return t
 			})
 
 			o.Spec("doesn't move anything around", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed["worker-0"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-0"].removed).To(HaveLen(0))
 			})
 		})
 
 		o.Group("with a workers updated", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 
-				t.o.UpdateWorkers([]orchestrator.Worker{"worker-0", "worker-2"})
+				t.o.UpdateWorkers([]orchestrator.Worker{
+					{Identifier: "worker-0", Communicator: t.spyCommunicators["worker-0"]},
+					{Identifier: "worker-2", Communicator: t.spyCommunicators["worker-2"]},
+				})
 				return t
 			})
 
 			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(0))
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(1))
 
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(Contain(
 					"task-1",
 				))
@@ -352,9 +360,9 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a task removed", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0"}
-				t.spy.actual["worker-1"] = []interface{}{"task-1"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"task-1"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 
 				t.o.RemoveTask("task-1")
 				return t
@@ -363,22 +371,22 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("removes the tasks from the worker", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(1))
-				Expect(t, t.spy.removed["worker-1"]).To(Contain("task-1"))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(Contain("task-1"))
 
 				Expect(t, append(append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-1"]...),
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-1"].added...),
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(0))
 			})
 		})
 
 		o.Group("with task list updated", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.actual["worker-0"] = []interface{}{"task-0"}
-				t.spy.actual["worker-1"] = []interface{}{"task-1"}
-				t.spy.actual["worker-2"] = []interface{}{"task-2"}
+				t.spyCommunicators["worker-0"].actual = []interface{}{"task-0"}
+				t.spyCommunicators["worker-1"].actual = []interface{}{"task-1"}
+				t.spyCommunicators["worker-2"].actual = []interface{}{"task-2"}
 
 				t.o.UpdateTasks([]orchestrator.Task{
 					{
@@ -396,20 +404,20 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("removes the tasks from the worker", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.removed["worker-1"]).To(HaveLen(1))
-				Expect(t, t.spy.removed["worker-1"]).To(Contain("task-1"))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(HaveLen(1))
+				Expect(t, t.spyCommunicators["worker-1"].removed).To(Contain("task-1"))
 
 				Expect(t, append(append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-1"]...),
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-1"].added...),
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(0))
 			})
 		})
 
 		o.Group("with a worker returning an error for list", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.listErrs["worker-1"] = errors.New("some-error")
+				t.spyCommunicators["worker-1"].listErrs = errors.New("some-error")
 
 				return t
 			})
@@ -417,15 +425,15 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(0))
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(3))
 
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(Contain(
 					"task-0",
 					"task-1",
@@ -436,7 +444,7 @@ func TestOrchestrator(t *testing.T) {
 
 		o.Group("with a worker blocking trying to list", func() {
 			o.BeforeEach(func(t TO) TO {
-				t.spy.block["worker-1"] = true
+				t.spyCommunicators["worker-1"].block = true
 
 				return t
 			})
@@ -444,15 +452,15 @@ func TestOrchestrator(t *testing.T) {
 			o.Spec("divvys up work amongst the remaining workers", func(t TO) {
 				t.o.NextTerm(context.Background())
 
-				Expect(t, t.spy.added["worker-1"]).To(HaveLen(0))
+				Expect(t, t.spyCommunicators["worker-1"].added).To(HaveLen(0))
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(HaveLen(3))
 
 				Expect(t, append(
-					t.spy.added["worker-0"],
-					t.spy.added["worker-2"]...,
+					t.spyCommunicators["worker-0"].added,
+					t.spyCommunicators["worker-2"].added...,
 				)).To(Contain(
 					"task-0",
 					"task-1",
@@ -470,31 +478,22 @@ func TestOrchestrator(t *testing.T) {
 type spyCommunicator struct {
 	mu sync.Mutex
 
-	block      map[interface{}]bool
-	listErrs   map[interface{}]error
-	actual     map[interface{}][]interface{}
-	added      map[interface{}][]interface{}
-	removed    map[interface{}][]interface{}
-	listCtx    map[interface{}][]context.Context
-	addedCtx   map[interface{}][]context.Context
-	removedCtx map[interface{}][]context.Context
+	block      bool
+	listErrs   error
+	actual     []interface{}
+	added      []interface{}
+	removed    []interface{}
+	listCtx    []context.Context
+	addedCtx   []context.Context
+	removedCtx []context.Context
 }
 
 func newSpyCommunicator() *spyCommunicator {
-	return &spyCommunicator{
-		block:      make(map[interface{}]bool),
-		listCtx:    make(map[interface{}][]context.Context),
-		listErrs:   make(map[interface{}]error),
-		actual:     make(map[interface{}][]interface{}),
-		added:      make(map[interface{}][]interface{}),
-		addedCtx:   make(map[interface{}][]context.Context),
-		removedCtx: make(map[interface{}][]context.Context),
-		removed:    make(map[interface{}][]interface{}),
-	}
+	return &spyCommunicator{}
 }
 
-func (s *spyCommunicator) List(ctx context.Context, worker interface{}) ([]interface{}, error) {
-	if s.block[worker] {
+func (s *spyCommunicator) List(ctx context.Context) ([]interface{}, error) {
+	if s.block {
 		var c chan int
 		<-c
 	}
@@ -502,25 +501,25 @@ func (s *spyCommunicator) List(ctx context.Context, worker interface{}) ([]inter
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.listCtx[worker] = append(s.listCtx[worker], ctx)
-	return s.actual[worker], s.listErrs[worker]
+	s.listCtx = append(s.listCtx, ctx)
+	return s.actual, s.listErrs
 }
 
-func (s *spyCommunicator) Add(ctx context.Context, worker interface{}, task interface{}) error {
+func (s *spyCommunicator) Add(ctx context.Context, task interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.added[worker] = append(s.added[worker], task)
-	s.addedCtx[worker] = append(s.addedCtx[worker], ctx)
+	s.added = append(s.added, task)
+	s.addedCtx = append(s.addedCtx, ctx)
 	return nil
 }
 
-func (s *spyCommunicator) Remove(ctx context.Context, worker interface{}, task interface{}) error {
+func (s *spyCommunicator) Remove(ctx context.Context, task interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.removed[worker] = append(s.removed[worker], task)
-	s.removedCtx[worker] = append(s.removedCtx[worker], ctx)
+	s.removed = append(s.removed, task)
+	s.removedCtx = append(s.removedCtx, ctx)
 	return nil
 }
 
