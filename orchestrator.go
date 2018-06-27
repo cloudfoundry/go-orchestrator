@@ -338,7 +338,7 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 		if needs == 0 {
 			continue
 		}
-		toAdd[task.Name] = needs
+		toAdd[task.Definition] = needs
 	}
 
 	for worker, tasks := range actual {
@@ -362,7 +362,7 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 func (o *Orchestrator) hasEnough(t Task, actual map[interface{}][]interface{}) (needs int) {
 	var count int
 	for _, a := range actual {
-		if o.contains(t.Name, a) >= 0 {
+		if o.contains(t.Definition, a) >= 0 {
 			count++
 		}
 	}
@@ -386,7 +386,7 @@ func (o *Orchestrator) contains(x interface{}, y []interface{}) int {
 // task is not found, it returns -1.
 func (o *Orchestrator) containsTask(task interface{}, tasks []Task) int {
 	for i, t := range tasks {
-		if t.Name == task {
+		if t.Definition == task {
 			return i
 		}
 	}
@@ -438,8 +438,8 @@ func (o *Orchestrator) UpdateWorkers(workers []interface{}) {
 
 // Task stores the required information for a task.
 type Task struct {
-	Name      interface{}
-	Instances int
+	Definition interface{}
+	Instances  int
 }
 
 // AddTask adds a new task to the expected workload. The update will not take
@@ -451,12 +451,12 @@ func (o *Orchestrator) AddTask(task interface{}, opts ...TaskOption) {
 
 	// Ensure we don't already have this task
 	for _, t := range o.expectedTasks {
-		if task == t.Name {
+		if task == t.Definition {
 			return
 		}
 	}
 
-	t := Task{Name: task, Instances: 1}
+	t := Task{Definition: task, Instances: 1}
 	for _, opt := range opts {
 		opt(&t)
 	}

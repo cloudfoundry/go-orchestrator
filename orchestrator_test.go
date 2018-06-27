@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	orchestrator "code.cloudfoundry.org/go-orchestrator"
+	"code.cloudfoundry.org/go-orchestrator"
 	"github.com/apoydence/onpar"
 	. "github.com/apoydence/onpar/expect"
 	. "github.com/apoydence/onpar/matchers"
@@ -382,12 +382,12 @@ func TestOrchestrator(t *testing.T) {
 
 				t.o.UpdateTasks([]orchestrator.Task{
 					{
-						Name:      "task-0",
-						Instances: 1,
+						Definition: "task-0",
+						Instances:  1,
 					},
 					{
-						Name:      "task-2",
-						Instances: 1,
+						Definition: "task-2",
+						Instances:  1,
 					},
 				})
 				return t
