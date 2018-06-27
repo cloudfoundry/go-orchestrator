@@ -164,7 +164,7 @@ func TestOrchestrator(t *testing.T) {
 
 			o.Group("with single worker", func() {
 				o.Spec("it only assigns the task once", func(t TO) {
-					t.o.UpdateWorkers([]interface{}{"worker"})
+					t.o.UpdateWorkers([]orchestrator.Worker{"worker"})
 					t.spy.actual["worker"] = []interface{}{"multi-task"}
 					t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
 
@@ -328,7 +328,7 @@ func TestOrchestrator(t *testing.T) {
 				t.spy.actual["worker-0"] = []interface{}{"task-0"}
 				t.spy.actual["worker-2"] = []interface{}{"task-2"}
 
-				t.o.UpdateWorkers([]interface{}{"worker-0", "worker-2"})
+				t.o.UpdateWorkers([]orchestrator.Worker{"worker-0", "worker-2"})
 				return t
 			})
 
