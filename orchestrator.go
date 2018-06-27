@@ -130,8 +130,8 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	toAdd, toRemove := o.delta(actual)
 
 	// Rebalance tasks among workers.
-	toAdd, toRemove = o.rebalance(toAdd, toRemove, actual)
-	counts := o.counts(actual, toRemove)
+	toAdd, toRemove = rebalance(toAdd, toRemove, actual)
+	counts := counts(actual, toRemove)
 
 	for worker, tasks := range toRemove {
 		for _, task := range tasks {
@@ -161,13 +161,13 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 // rebalance will rebalance tasks across the workers. If any worker has too
 // many tasks, it will be added to the remove map, and added to the returned
 // add slice.
-func (o *Orchestrator) rebalance(
+func rebalance(
 	toAdd map[interface{}]int,
 	toRemove,
 	actual map[interface{}][]interface{},
 ) (map[interface{}]int, map[interface{}][]interface{}) {
 
-	counts := o.counts(actual, toRemove)
+	counts := counts(actual, toRemove)
 	if len(counts) == 0 {
 		return toAdd, toRemove
 	}
@@ -225,7 +225,7 @@ func (o *Orchestrator) assignTask(
 		}
 
 		// Ensure we haven't assigned this task to the worker already.
-		if history[info.name] || o.contains(task, actual[info.name]) >= 0 {
+		if history[info.name] || contains(task, actual[info.name]) >= 0 {
 			continue
 		}
 		history[info.name] = true
@@ -267,7 +267,7 @@ type countInfo struct {
 }
 
 // counts looks at each worker and gathers the number of tasks each has.
-func (o *Orchestrator) counts(actual, toRemove map[interface{}][]interface{}) []countInfo {
+func counts(actual, toRemove map[interface{}][]interface{}) []countInfo {
 	var results []countInfo
 	for k, v := range actual {
 		results = append(results, countInfo{
@@ -334,7 +334,7 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 	copy(expectedTasks, o.expectedTasks)
 
 	for _, task := range o.expectedTasks {
-		needs := o.hasEnough(task, actual)
+		needs := hasEnough(task, actual)
 		if needs == 0 {
 			continue
 		}
@@ -343,7 +343,7 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 
 	for worker, tasks := range actual {
 		for _, task := range tasks {
-			if idx := o.containsTask(task, expectedTasks); idx >= 0 {
+			if idx := containsTask(task, expectedTasks); idx >= 0 {
 				expectedTasks[idx].Instances--
 				if expectedTasks[idx].Instances == 0 {
 					expectedTasks = append(expectedTasks[0:idx], expectedTasks[idx+1:]...)
@@ -359,10 +359,10 @@ func (o *Orchestrator) delta(actual map[interface{}][]interface{}) (toAdd map[in
 
 // hasEnough looks at each task in the given actual list and ensures
 // a worker node is servicing the task.
-func (o *Orchestrator) hasEnough(t Task, actual map[interface{}][]interface{}) (needs int) {
+func hasEnough(t Task, actual map[interface{}][]interface{}) (needs int) {
 	var count int
 	for _, a := range actual {
-		if o.contains(t.Definition, a) >= 0 {
+		if contains(t.Definition, a) >= 0 {
 			count++
 		}
 	}
@@ -372,7 +372,7 @@ func (o *Orchestrator) hasEnough(t Task, actual map[interface{}][]interface{}) (
 
 // contains returns the index of the given interface{} (x) in the slice y. If the
 // interface{} is not present in the slice, it returns -1.
-func (o *Orchestrator) contains(x interface{}, y []interface{}) int {
+func contains(x interface{}, y []interface{}) int {
 	for i, t := range y {
 		if t == x {
 			return i
@@ -384,7 +384,7 @@ func (o *Orchestrator) contains(x interface{}, y []interface{}) int {
 
 // containsTask returns the index of the given task name in the tasks. If the
 // task is not found, it returns -1.
-func (o *Orchestrator) containsTask(task interface{}, tasks []Task) int {
+func containsTask(task interface{}, tasks []Task) int {
 	for i, t := range tasks {
 		if t.Definition == task {
 			return i
@@ -418,7 +418,7 @@ func (o *Orchestrator) RemoveWorker(worker interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	idx := o.contains(worker, o.workers)
+	idx := contains(worker, o.workers)
 	if idx < 0 {
 		return
 	}
@@ -481,7 +481,7 @@ func (o *Orchestrator) RemoveTask(task interface{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	idx := o.containsTask(task, o.expectedTasks)
+	idx := containsTask(task, o.expectedTasks)
 	if idx < 0 {
 		return
 	}
