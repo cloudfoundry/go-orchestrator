@@ -93,22 +93,6 @@ func TestOrchestrator(t *testing.T) {
 			})
 		})
 
-		o.Group("stats", func() {
-			o.Spec("it reports that 2 workers responded to List", func(t TO) {
-				var stats orchestrator.TermStats
-				orch := orchestrator.New(
-					orchestrator.WithStats(func(s orchestrator.TermStats) {
-						stats = s
-					}),
-				)
-				orch.AddWorker(orchestrator.Worker{Identifier: "worker-0", Communicator: newSpyCommunicator()})
-				orch.AddWorker(orchestrator.Worker{Identifier: "worker-1", Communicator: newSpyCommunicator()})
-				orch.NextTerm(context.Background())
-
-				Expect(t, stats.WorkerCount).To(Equal(2))
-			})
-		})
-
 		o.Group("with task that has multiple instances", func() {
 			o.BeforeEach(func(t TO) TO {
 				t.o.UpdateTasks(nil)
@@ -163,20 +147,6 @@ func TestOrchestrator(t *testing.T) {
 				Expect(t, removed).To(HaveLen(1))
 			})
 
-			o.Group("with single worker", func() {
-				o.Spec("it only assigns the task once", func(t TO) {
-					communicator := newSpyCommunicator()
-					t.spyCommunicators["worker"] = communicator
-					t.o.UpdateWorkers([]orchestrator.Worker{{Identifier: "worker", Communicator: communicator}})
-					t.spyCommunicators["worker"].actual = []interface{}{"multi-task"}
-					t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
-
-					t.o.NextTerm(context.Background())
-
-					Expect(t, t.spyCommunicators["worker"].added).To(HaveLen(0))
-				})
-			})
-
 			o.Group("with more total tasks than workers", func() {
 				o.Spec("it assigns each task to 2 different workers", func(t TO) {
 					t.o.AddTask("multi-task-0", orchestrator.WithTaskInstances(2))
@@ -184,23 +154,26 @@ func TestOrchestrator(t *testing.T) {
 					t.o.AddTask("multi-task-2", orchestrator.WithTaskInstances(2))
 					t.o.NextTerm(context.Background())
 
-					Expect(t, count("multi-task-0", append(append(
+					addedTasks := append(append(
 						t.spyCommunicators["worker-0"].added,
 						t.spyCommunicators["worker-1"].added...),
 						t.spyCommunicators["worker-2"].added...,
-					))).To(Equal(2))
+					)
 
-					Expect(t, count("multi-task-1", append(append(
-						t.spyCommunicators["worker-0"].added,
-						t.spyCommunicators["worker-1"].added...),
-						t.spyCommunicators["worker-2"].added...,
-					))).To(Equal(2))
+					Expect(t, count("multi-task-0", addedTasks)).To(Equal(2))
+					Expect(t, count("multi-task-0", t.spyCommunicators["worker-0"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-0", t.spyCommunicators["worker-1"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-0", t.spyCommunicators["worker-2"].added)).To(BeBelow(2))
 
-					Expect(t, count("multi-task-2", append(append(
-						t.spyCommunicators["worker-0"].added,
-						t.spyCommunicators["worker-1"].added...),
-						t.spyCommunicators["worker-2"].added...,
-					))).To(Equal(2))
+					Expect(t, count("multi-task-1", addedTasks)).To(Equal(2))
+					Expect(t, count("multi-task-1", t.spyCommunicators["worker-0"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-1", t.spyCommunicators["worker-1"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-1", t.spyCommunicators["worker-2"].added)).To(BeBelow(2))
+
+					Expect(t, count("multi-task-2", addedTasks)).To(Equal(2))
+					Expect(t, count("multi-task-2", t.spyCommunicators["worker-0"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-2", t.spyCommunicators["worker-1"].added)).To(BeBelow(2))
+					Expect(t, count("multi-task-2", t.spyCommunicators["worker-2"].added)).To(BeBelow(2))
 				})
 			})
 		})
@@ -470,8 +443,38 @@ func TestOrchestrator(t *testing.T) {
 		})
 	})
 
+	o.Group("with single worker", func() {
+		o.Spec("it only assigns the task once", func(t TO) {
+			communicator := newSpyCommunicator()
+			t.spyCommunicators["worker"] = communicator
+			t.o.UpdateWorkers([]orchestrator.Worker{{Identifier: "worker", Communicator: communicator}})
+			t.spyCommunicators["worker"].actual = []interface{}{"multi-task"}
+			t.o.AddTask("multi-task", orchestrator.WithTaskInstances(2))
+
+			t.o.NextTerm(context.Background())
+
+			Expect(t, t.spyCommunicators["worker"].added).To(HaveLen(0))
+		})
+	})
+
 	o.Spec("handles having 0 workers", func(t TO) {
 		t.o.NextTerm(context.Background())
+	})
+
+	o.Group("stats", func() {
+		o.Spec("it reports that 2 workers responded to List", func(t TO) {
+			var stats orchestrator.TermStats
+			orch := orchestrator.New(
+				orchestrator.WithStats(func(s orchestrator.TermStats) {
+					stats = s
+				}),
+			)
+			orch.AddWorker(orchestrator.Worker{Identifier: "worker-0", Communicator: newSpyCommunicator()})
+			orch.AddWorker(orchestrator.Worker{Identifier: "worker-1", Communicator: newSpyCommunicator()})
+			orch.NextTerm(context.Background())
+
+			Expect(t, stats.WorkerCount).To(Equal(2))
+		})
 	})
 }
 
