@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	orchestrator "code.cloudfoundry.org/go-orchestrator"
 	"github.com/apoydence/onpar"
 	. "github.com/apoydence/onpar/expect"
 	. "github.com/apoydence/onpar/matchers"
+	orchestrator "github.com/cloudfoundry-incubator/go-orchestrator"
 )
 
 type TO struct {
@@ -405,6 +405,39 @@ func TestOrchestrator(t *testing.T) {
 					t.spy.added["worker-2"]...,
 				)).To(HaveLen(0))
 			})
+		})
+
+		o.Spec("cannot access a node whose key does not exist", func(t TO) {
+			t.spy.actual["worker-0"] = []interface{}{}
+
+			t.spy.actual["worker-1"] = []interface{}{
+				"task-4",
+			}
+
+			t.spy.actual["worker-2"] = []interface{}{}
+
+			toAdd := map[interface{}]int{
+				"task-1": 0,
+				"task-2": 0,
+				"task-3": 0,
+				"task-4": 0,
+			}
+			toRemove := map[interface{}][]interface{}{
+				"worker-0": []interface{}{
+					"task-1",
+					"task-2",
+					"task-3",
+					"task-4",
+				},
+				"worker-1": []interface{}{},
+				"worker-2": []interface{}{},
+			}
+
+			toA, toR := t.o.Rebalance(toAdd, toRemove, t.spy.actual)
+
+			// Assert that toRemove is unchanged after calling Rebalance
+			Expect(t, toR).To(Equal(toRemove))
+			Expect(t, toA).To(Equal(toAdd))
 		})
 
 		o.Group("with a worker returning an error for list", func() {
