@@ -188,7 +188,7 @@ func (o *Orchestrator) Rebalance(
 	}
 
 	for _, c := range counts {
-		if c.count > maxPerNode {
+		if c.count > maxPerNode && len(actual[c.name]) > 0 {
 			task := actual[c.name][0]
 			toRemove[c.name] = append(toRemove[c.name], task)
 			toAdd[task]++
