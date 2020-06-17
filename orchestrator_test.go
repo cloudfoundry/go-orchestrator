@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apoydence/onpar"
-	. "github.com/apoydence/onpar/expect"
-	. "github.com/apoydence/onpar/matchers"
-	orchestrator "github.com/cloudfoundry-incubator/go-orchestrator"
+	"code.cloudfoundry.org/go-orchestrator"
+	"github.com/poy/onpar"
+	. "github.com/poy/onpar/expect"
+	. "github.com/poy/onpar/matchers"
 )
 
 type TO struct {
