@@ -18,15 +18,6 @@ jobs:
           go-version: 1.18
       - run: go test -race ./...
 
-  vet:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
-        with:
-          go-version: 1.18
-      - run: go vet ./...
-
   lint:
     runs-on: ubuntu-latest
     steps:
