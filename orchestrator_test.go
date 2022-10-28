@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"sync"
@@ -19,9 +19,8 @@ import (
 
 type TO struct {
 	*testing.T
-	spy          *spyCommunicator
-	o            *orchestrator.Orchestrator
-	statsHandler func(orchestrator.TermStats)
+	spy *spyCommunicator
+	o   *orchestrator.Orchestrator
 }
 
 func TestOrchestrator(t *testing.T) {
@@ -31,7 +30,7 @@ func TestOrchestrator(t *testing.T) {
 
 	o.BeforeEach(func(t *testing.T) TO {
 		spy := newSpyCommunicator()
-		logger := log.New(ioutil.Discard, "", 0)
+		logger := log.New(io.Discard, "", 0)
 		if testing.Verbose() {
 			logger = log.New(os.Stderr, "[Orchestrator] ", 0)
 		}

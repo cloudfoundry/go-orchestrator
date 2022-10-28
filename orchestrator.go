@@ -14,7 +14,7 @@ package orchestrator
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"log"
 	"sync"
 	"time"
@@ -45,7 +45,7 @@ func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 	o := &Orchestrator{
 		c:       c,
 		s:       func(TermStats) {},
-		log:     log.New(ioutil.Discard, "", 0),
+		log:     log.New(io.Discard, "", 0),
 		timeout: 10 * time.Second,
 	}
 
@@ -56,7 +56,7 @@ func New(c Communicator, opts ...OrchestratorOption) *Orchestrator {
 	return o
 }
 
-//OrchestratorOption configures an Orchestrator.
+// OrchestratorOption configures an Orchestrator.
 type OrchestratorOption func(*Orchestrator)
 
 // Logger is used to write information.
@@ -137,8 +137,8 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 	for worker, tasks := range toRemove {
 		for _, task := range tasks {
 			// Remove the task from the workers.
-			removeCtx, _ := context.WithTimeout(ctx, o.timeout)
-			o.c.Remove(removeCtx, worker, task)
+			removeCtx, _ := context.WithTimeout(ctx, o.timeout) //nolint:govet
+			o.c.Remove(removeCtx, worker, task)                 //nolint:errcheck
 		}
 	}
 
@@ -239,8 +239,8 @@ func (o *Orchestrator) assignTask(
 
 		// Assign the task to the worker.
 		o.log.Printf("Adding task %s to %s.", task, info.name)
-		addCtx, _ := context.WithTimeout(ctx, o.timeout)
-		o.c.Add(addCtx, info.name, task)
+		addCtx, _ := context.WithTimeout(ctx, o.timeout) //nolint:govet
+		o.c.Add(addCtx, info.name, task)                 //nolint:errcheck
 
 		// Move adjusted count to end of slice to help with fairness
 		c := counts[i]
@@ -297,7 +297,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[interface{}][]int
 		err    error
 	}
 
-	listCtx, _ := context.WithTimeout(ctx, o.timeout)
+	listCtx, _ := context.WithTimeout(ctx, o.timeout) //nolint:govet
 	results := make(chan result, len(o.workers))
 	errs := make(chan result, len(o.workers))
 	for _, worker := range o.workers {
