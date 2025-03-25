@@ -138,7 +138,7 @@ func (o *Orchestrator) NextTerm(ctx context.Context) {
 		for _, task := range tasks {
 			// Remove the task from the workers.
 			removeCtx, _ := context.WithTimeout(ctx, o.timeout) //nolint:govet
-			o.c.Remove(removeCtx, worker, task)                 //nolint:errcheck
+			o.c.Remove(removeCtx, worker, task)                 //nolint:errcheck, gosec
 		}
 	}
 
@@ -240,7 +240,7 @@ func (o *Orchestrator) assignTask(
 		// Assign the task to the worker.
 		o.log.Printf("Adding task %s to %s.", task, info.name)
 		addCtx, _ := context.WithTimeout(ctx, o.timeout) //nolint:govet
-		o.c.Add(addCtx, info.name, task)                 //nolint:errcheck
+		o.c.Add(addCtx, info.name, task)                 //nolint:errcheck, gosec
 
 		// Move adjusted count to end of slice to help with fairness
 		c := counts[i]
@@ -318,7 +318,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[interface{}][]int
 	for i := 0; i < len(o.workers); i++ {
 		select {
 		case <-ctx.Done():
-			break
+			break //nolint:staticcheck
 		case r := <-results:
 			actual[r.name] = r.actual
 			state = append(state, WorkerState{Name: r.name, Tasks: r.actual})
@@ -326,7 +326,7 @@ func (o *Orchestrator) collectActual(ctx context.Context) (map[interface{}][]int
 			o.log.Printf("Error trying to list tasks from %s: %s", err.name, err.err)
 		case <-t.C:
 			o.log.Printf("Communicator timeout. Using results available...")
-			break
+			break //nolint:staticcheck
 		}
 	}
 
